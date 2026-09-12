@@ -1,18 +1,22 @@
 """
 Validates extracted records against TVB's target-profile parameters and
-performs a multi-tiered B2B Finder verification workflow:
+performs a hardened Waterfall Verification workflow with Catch-All probing:
 
-  1. Hunter.io Live B2B API Lookup (if HUNTER_API_KEY is present).
-  2. Persona Parsing & Domain Extraction (First/Last Name + Root Corporate Domain).
-  3. Pattern Ingestion & Matrix Generation (first@, first.last@, f.last@, first_last@).
-  4. Real-Time DNS/MX & Non-Intrusive SMTP Handshake Verification.
+  1. Tier 1: Hunter.io Live B2B API Lookup (if HUNTER_API_KEY is present).
+  2. Tier 2: Catch-All Domain Detection (via random address SMTP probe).
+  3. Tier 3: Waterfall Gate:
+     - If Catch-All domain -> Drop pattern matrix; ONLY accept Hunter.io score >= 80.
+     - If Non-Catch-All -> Generate candidate pattern matrix (first@, first.last@, f.last@).
+  4. Tier 4: Priority DNS/MX Resolution & Non-Intrusive SMTP Handshake.
 """
 
 import os
+import random
 import re
 import smtplib
 import socket
-from typing import Dict, List, Optional
+import string
+from typing import Dict, List, Optional, Tuple
 
 import requests
 
@@ -27,7 +31,8 @@ EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 
 GENERIC_LOCAL_PARTS = {
     "info", "support", "hello", "contact", "sales", "admin",
-    "team", "press", "media", "office", "help", "careers",
+    "team", "press", "media", "office", "help", "careers", "billing",
+    "jobs", "marketing", "general", "inquiries",
 }
 
 DISALLOWED_EMAIL_DOMAINS = {
@@ -40,6 +45,7 @@ DISALLOWED_EMAIL_DOMAINS = {
 }
 
 _mx_cache: Dict[str, List[str]] = {}
+_catch_all_cache: Dict[str, bool] = {}
 
 
 def get_mx_hosts(domain: str) -> List[str]:
@@ -72,24 +78,58 @@ def _has_mx_record(domain: str) -> bool:
     return len(get_mx_hosts(domain)) > 0
 
 
-def _query_hunter_email(domain: str, first_name: str, last_name: str) -> Optional[str]:
-    """Queries Hunter.io API to find and verify the executive's email address."""
+def _query_hunter_email(domain: str, first_name: str, last_name: str) -> Tuple[Optional[str], int]:
+    """Queries Hunter.io API. Returns (email, confidence_score)."""
     hunter_key = os.environ.get("HUNTER_API_KEY", "")
     if not hunter_key or not domain or not first_name:
-        return None
+        return (None, 0)
     try:
         url = f"https://api.hunter.io/v2/email-finder?domain={domain}&first_name={first_name}&last_name={last_name}&api_key={hunter_key}"
         resp = requests.get(url, timeout=config.REQUEST_TIMEOUT_SECS)
         if resp.status_code == 200:
             data = resp.json().get("data", {})
             found_email = data.get("email")
-            score = data.get("score", 0)
-            if found_email and score >= 40:
-                if verify_email(found_email, f"{first_name} {last_name}".strip()):
-                    return found_email
+            score = int(data.get("score", 0))
+            if found_email:
+                return (found_email, score)
     except Exception:
         pass
-    return None
+    return (None, 0)
+
+
+def is_catch_all_domain(domain: str, timeout: float = 2.5) -> bool:
+    """Probes domain with a randomized bogus address to detect Catch-All servers."""
+    if not domain:
+        return False
+    if domain in _catch_all_cache:
+        return _catch_all_cache[domain]
+
+    mx_hosts = get_mx_hosts(domain)
+    if not mx_hosts:
+        _catch_all_cache[domain] = False
+        return False
+
+    random_local = "probe_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=14))
+    probe_email = f"{random_local}@{domain}"
+
+    is_catch_all = False
+    for mx in mx_hosts[:1]:
+        try:
+            smtp = smtplib.SMTP(timeout=timeout)
+            smtp.connect(mx, 25)
+            smtp.helo("tvb-verify.com")
+            smtp.mail("verify@tvb-verify.com")
+            code, _ = smtp.rcpt(probe_email)
+            smtp.quit()
+            # If server accepts a totally bogus random address, it is a catch-all
+            if code == 250:
+                is_catch_all = True
+                break
+        except Exception:
+            pass
+
+    _catch_all_cache[domain] = is_catch_all
+    return is_catch_all
 
 
 def generate_candidate_patterns(contact_name: str, domain: str) -> List[str]:
@@ -161,9 +201,60 @@ def verify_email(email: str, contact_name: str = "") -> bool:
     return _has_mx_record(domain_lower)
 
 
+def resolve_executive_email(raw_email: str, contact_name: str, source_url: str) -> Optional[str]:
+    """Applies strict Waterfall Verification with Catch-All domain defense."""
+    if not source_url:
+        return None
+
+    clean_domain = source_url.split("//")[-1].split("/")[0].replace("www.", "").strip().lower()
+    if any(clean_domain == d or clean_domain.endswith("." + d) for d in DISALLOWED_EMAIL_DOMAINS):
+        return None
+
+    # Step 1: Hunter.io lookup
+    f_name, l_name = "", ""
+    if contact_name:
+        parts = [p.strip() for p in re.sub(r"[^a-zA-Z\s]", "", contact_name).split() if p.strip()]
+        if parts:
+            f_name = parts[0]
+            l_name = parts[-1] if len(parts) > 1 else ""
+
+    hunter_email, hunter_score = _query_hunter_email(clean_domain, f_name, l_name)
+
+    # Step 2: Catch-All probe
+    catch_all = is_catch_all_domain(clean_domain)
+
+    # Step 3: Waterfall decision gate
+    if catch_all:
+        # For Catch-All domains, drop generated patterns completely.
+        # Accept ONLY if Hunter returned a verified email with confidence score >= 80
+        if hunter_email and hunter_score >= 80 and verify_email(hunter_email, contact_name):
+            return hunter_email
+        # If directly extracted raw email exists on the domain and is non-generic, test it
+        if raw_email and clean_domain in raw_email and verify_email(raw_email, contact_name):
+            return raw_email
+        return None
+
+    # For non-catch-all domains:
+    # 1. Hunter result if score >= 40
+    if hunter_email and hunter_score >= 40 and verify_email(hunter_email, contact_name):
+        return hunter_email
+
+    # 2. Directly scraped valid email
+    if raw_email and verify_email(raw_email, contact_name):
+        return raw_email
+
+    # 3. Candidate pattern matrix with SMTP handshake
+    patterns = generate_candidate_patterns(contact_name, clean_domain)
+    for candidate in patterns:
+        if verify_email(candidate, contact_name) and verify_email_smtp_handshake(candidate):
+            return candidate
+
+    return None
+
+
 def _looks_us(record: Dict) -> bool:
     hq = str(record.get("hq_country") or "").strip().lower()
-    if hq in ("united states", "usa", "us", "u.s.", "u.s.a."):
+    if hq in ("united states", "usa", "us", "u.s.", "u.s.a.", "delaware"):
         return True
     val = record.get("has_significant_us_presence")
     if val is True:
@@ -218,39 +309,6 @@ def _clean_funding_display(record: Dict) -> str:
     return raw
 
 
-def resolve_executive_email(raw_email: str, contact_name: str, source_url: str) -> Optional[str]:
-    """Applies Hunter.io lookup and Apollo/Finder pattern matrix verification."""
-    # 1. If an email was directly provided and valid, test it
-    if raw_email and verify_email(raw_email, contact_name):
-        return raw_email
-
-    # 2. Extract domain from official source URL
-    if not source_url:
-        return None
-
-    clean_domain = source_url.split("//")[-1].split("/")[0].replace("www.", "").strip().lower()
-    if any(clean_domain == d or clean_domain.endswith("." + d) for d in DISALLOWED_EMAIL_DOMAINS):
-        return None
-
-    # 3. Direct Hunter.io API Query (if Hunter key is active)
-    if contact_name:
-        parts = [p.strip() for p in re.sub(r"[^a-zA-Z\s]", "", contact_name).split() if p.strip()]
-        if parts:
-            f_name = parts[0]
-            l_name = parts[-1] if len(parts) > 1 else ""
-            hunter_result = _query_hunter_email(clean_domain, f_name, l_name)
-            if hunter_result:
-                return hunter_result
-
-    # 4. Pattern Matrix + Live MX Handshake
-    patterns = generate_candidate_patterns(contact_name, clean_domain)
-    for candidate in patterns:
-        if verify_email(candidate, contact_name):
-            return candidate
-
-    return None
-
-
 def evaluate_record(record: Dict) -> Optional[Dict]:
     """Returns a cleaned, qualifying record, or None if it fails any
     required TVB criterion."""
@@ -262,7 +320,7 @@ def evaluate_record(record: Dict) -> Optional[Dict]:
     contact_name = str(record.get("contact_name") or "").strip()
     source_url = str(record.get("source_url") or "").strip()
 
-    if not company_name or not contact_name:
+    if not company_name or not contact_name or len(contact_name.split()) < 1:
         return None
 
     # Check tech platform status
@@ -279,7 +337,7 @@ def evaluate_record(record: Dict) -> Optional[Dict]:
     if not _funding_in_range(record):
         return None
 
-    # Resolve and verify executive email via Hunter.io & Pattern Finder engine
+    # Resolve and verify executive email via Waterfall Finder
     verified_email = resolve_executive_email(raw_email, contact_name, source_url)
     if not verified_email:
         return None

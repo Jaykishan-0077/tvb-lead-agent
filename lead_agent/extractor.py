@@ -1,3 +1,12 @@
+"""
+Extractor layer.
+
+Enhanced with Phase 3 High-Thinking Reasoning & Strict Grounding Prompts:
+- Enforces strict grounding (no guessing, no hallucinations, null if unstated).
+- Configures Gemini 3.5 Flash-Lite thinking depth (thinking_level="HIGH" / reasoning).
+- Strict JSON structure validation.
+"""
+
 import json
 import os
 import re
@@ -19,14 +28,14 @@ except ImportError:
     genai = None
 
 EXTRACTION_INSTRUCTIONS = """\
-You are reviewing raw text scraped from a company's website (home page plus
-about/team/contact pages if available). Extract ONLY information that is
-explicitly stated or very strongly implied in the text below. Do not invent
-or guess. If a field is not clearly supported by the text, return an empty
-string for it.
+You are an autonomous Venture Lead Extraction Agent reviewing raw text scraped from a company's website.
 
-Return STRICT JSON only, no markdown fences, no commentary, matching this
-schema exactly:
+STRICT GROUNDING RULE:
+Extract ONLY information that is explicitly stated in plain text in the website content below.
+If the exact dollar value of a funding round/revenue or the exact name of the CEO/Founder is not explicitly stated on the page, return an empty string "" for that field.
+Do not infer, estimate, guess, or combine history from similarly named entities.
+
+Return STRICT JSON only, no markdown fences, no commentary, matching this schema exactly:
 
 {
   "company_name": "",
@@ -43,16 +52,12 @@ schema exactly:
 }
 
 Rules:
-- contact_name MUST be the PRIMARY Founder, Co-Founder, or CEO of the company.
-  Check leadership/team listings and extract the top-level Founder / CEO (e.g., Kshitij Jain for Joveo).
-  DO NOT extract secondary VPs, department heads, advisors, or press spokespersons.
+- contact_name MUST be the PRIMARY Founder, Co-Founder, or CEO of the company explicitly listed in the team/leadership section.
+- DO NOT extract secondary VPs, department heads, advisors, or press spokespersons.
 - contact_title should be their actual leadership title (e.g. "Founder and CEO", "Co-Founder & CEO").
-- funding_or_revenue_usd_estimate should be a plain number in USD if a
-  specific figure is mentioned (e.g. "2500000"), otherwise leave blank.
-- has_significant_us_presence should be "yes" only if the text clearly
-  describes US headquarters, a large US office/team, or the company
-  positions itself as a US company.
-- If an executive email appears on their domain, report it. Otherwise leave blank for finder verification.
+- funding_or_revenue_usd_estimate: The plain number in USD only if a specific figure is mentioned in text (e.g. "2500000").
+- has_significant_us_presence should be "yes" only if the text clearly describes US headquarters or a dominant US presence.
+- contact_email: If an executive email appears on their domain, report it. Otherwise leave blank for verification.
 
 WEBSITE TEXT:
 \"\"\"
@@ -69,37 +74,79 @@ def _strip_code_fences(text: str) -> str:
 
 
 def _extract_via_gemini(api_key: str, prompt: str) -> Optional[str]:
-    # 1. Try google-genai SDK
+    # 1. Try google-genai SDK with High Thinking
     if genai is not None:
         try:
             client = genai.Client(api_key=api_key)
-            response = client.models.generate_content(
-                model=config.GEMINI_MODEL,
-                contents=prompt,
-                config=genai_types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1,
-                ),
-            )
-            return response.text
+            try:
+                # Attempt with explicit ThinkingConfig
+                response = client.models.generate_content(
+                    model=config.GEMINI_MODEL,
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.1,
+                        thinking_config=genai_types.ThinkingConfig(thinking_level="HIGH"),
+                    ),
+                )
+                if response and response.text:
+                    return response.text
+            except Exception:
+                # Fallback standard generation
+                response = client.models.generate_content(
+                    model=config.GEMINI_MODEL,
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.1,
+                    ),
+                )
+                if response and response.text:
+                    return response.text
         except Exception:
             pass
 
-    # 2. Direct REST API fallback for Gemini
-    models_to_try = [config.GEMINI_MODEL, "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-lite-latest"]
+    # 2. Direct REST API fallback for Gemini models
+    models_to_try = [
+        config.GEMINI_MODEL,
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash",
+        "gemini-2.5-flash",
+        "gemini-flash-lite-latest",
+    ]
     for model_name in models_to_try:
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            
+            # Try with thinkingConfig first
             payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "temperature": 0.1,
+                    "thinkingConfig": {"thinkingLevel": "HIGH"},
+                },
+            }
+            res = requests.post(url, json=payload, timeout=45)
+            if res.status_code == 200:
+                data = res.json()
+                if "candidates" in data and data["candidates"]:
+                    parts = data["candidates"][0].get("content", {}).get("parts", [])
+                    if parts and "text" in parts[0]:
+                        return parts[0]["text"]
+            
+            # Fallback without thinkingConfig if endpoint doesn't accept the parameter
+            payload_basic = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {
                     "responseMimeType": "application/json",
                     "temperature": 0.1,
                 },
             }
-            res = requests.post(url, json=payload, timeout=45)
-            if res.status_code == 200:
-                data = res.json()
+            res_basic = requests.post(url, json=payload_basic, timeout=45)
+            if res_basic.status_code == 200:
+                data = res_basic.json()
                 if "candidates" in data and data["candidates"]:
                     parts = data["candidates"][0].get("content", {}).get("parts", [])
                     if parts and "text" in parts[0]:
@@ -149,7 +196,7 @@ def _extract_via_openai(api_key: str, prompt: str) -> Optional[str]:
 
 
 def extract_record(page_text: str, source_url: str) -> Optional[Dict]:
-    if not page_text.strip():
+    if not page_text.strip() or len(page_text.strip()) < 150:
         return None
 
     prompt = EXTRACTION_INSTRUCTIONS.replace(

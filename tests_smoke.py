@@ -25,6 +25,7 @@ def test_us_presence_filter():
     # US-based entities
     assert validator._looks_us({"hq_country": "United States"})
     assert validator._looks_us({"hq_country": "USA"})
+    assert validator._looks_us({"hq_country": "Delaware"})
     assert validator._looks_us({"hq_country": "France", "has_significant_us_presence": "yes"})
     assert validator._looks_us({"hq_country": "India", "has_significant_us_presence": True})
 
@@ -40,10 +41,22 @@ def test_email_validation():
     assert not validator.verify_email("info@startup.com", contact_name="")  # generic without name
 
 
-def test_query_generation():
+def test_query_generation_and_negative_vectors():
     queries = query_generator.generate_queries(max_queries=10)
     assert len(queries) > 0
     assert any("raised" in q.lower() or "funding" in q.lower() or "seed" in q.lower() for q in queries)
+    assert any('-"Inc"' in q or '-"Delaware"' in q or '-"USA"' in q for q in queries)
+
+
+def test_scraper_firewall_detection():
+    assert scraper._is_firewall_or_error_page("Attention Required! | Cloudflare Ray ID: 12345")
+    assert scraper._is_firewall_or_error_page("Please verify you are a human - DataDome")
+    assert scraper._is_firewall_or_error_page("This domain is parked with ParkingCrew")
+    assert not scraper._is_firewall_or_error_page(
+        "Welcome to NexaPay, the leading European B2B payments platform. "
+        "Founded in 2024 by Jane Doe, our team in London provides corporate cards "
+        "and automated expense reconciliation for scale-ups across the UK and Germany."
+    )
 
 
 def test_domain_extraction():
@@ -76,7 +89,8 @@ if __name__ == "__main__":
     test_funding_parsing()
     test_us_presence_filter()
     test_email_validation()
-    test_query_generation()
+    test_query_generation_and_negative_vectors()
+    test_scraper_firewall_detection()
     test_domain_extraction()
     test_full_record_evaluation()
     print("✅ All smoke and validation tests passed successfully!")

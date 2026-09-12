@@ -2,13 +2,9 @@
 Builds the set of search queries the agent will use to *discover* candidate
 companies on its own, rather than relying on one fixed list.
 
-Two layers:
-1. Deterministic combinatorial generation (sector x region x funding-signal)
-   -- always works, no API key required.
-2. Optional LLM-brainstormed queries (if an Anthropic key is available) that
-   add angles a template can't easily produce (e.g. "companies that just
-   quietly closed pilots with hospitals in the UK", niche directory ideas,
-   award/list pages, accelerator cohort pages, etc.)
+Enhanced with Phase 1 Negative Search Vectors:
+  -"Inc" -"Delaware" -"USA" -"United States" -"Crunchbase" -"LinkedIn"
+to eliminate aggregator noise, directory deadlocks, and US tax-flip entities.
 """
 
 import random
@@ -18,8 +14,10 @@ from . import config
 
 try:
     import anthropic
-except ImportError:  # library not installed in some minimal envs
+except ImportError:
     anthropic = None
+
+NEGATIVE_SEARCH_VECTORS = '-"Inc" -"Delaware" -"USA" -"United States" -"Crunchbase" -"LinkedIn"'
 
 
 def _combinatorial_queries(n: int) -> List[str]:
@@ -27,8 +25,8 @@ def _combinatorial_queries(n: int) -> List[str]:
     for sector in config.SECTORS:
         for region in config.REGIONS:
             phrase = random.choice(config.FUNDING_SIGNAL_PHRASES)
-            queries.append(f'"{sector}" startup {region} {phrase}')
-            queries.append(f"{sector} platform company {region} funding announcement")
+            queries.append(f'"{sector}" startup {region} {phrase} {NEGATIVE_SEARCH_VECTORS}')
+            queries.append(f"{sector} platform company {region} funding announcement {NEGATIVE_SEARCH_VECTORS}")
     random.shuffle(queries)
     return queries[:n]
 
@@ -39,23 +37,20 @@ def _directory_style_queries(n: int) -> List[str]:
     queries = []
     for sector in config.SECTORS:
         region = random.choice(config.REGIONS)
-        queries.append(f"top {sector} startups {region} 2025 2026 list")
-        queries.append(f"{sector} scale-ups to watch {region}")
+        queries.append(f"top {sector} startups {region} 2025 2026 list {NEGATIVE_SEARCH_VECTORS}")
+        queries.append(f"{sector} scale-ups to watch {region} {NEGATIVE_SEARCH_VECTORS}")
     random.shuffle(queries)
     return queries[:n]
 
 
 def _llm_brainstormed_queries(n: int) -> List[str]:
     prompt = (
-        f"You are helping a venture-scouting agent discover companies on the "
-        f"open web. Generate {n} short, diverse Google-style search queries "
-        f"(one per line, no numbering, no quotes) that would surface small "
-        f"tech companies (roughly $1M-$5M revenue or funding raised) that "
-        f"are NOT primarily US-based, across sectors like healthcare tech, "
-        f"edtech, applied AI, cybersecurity, digital twin, fintech, and "
-        f"travel tech. Favor queries likely to return company websites, "
-        f"press releases, or 'meet our team' pages that mention a founder "
-        f"or CEO by name. Avoid queries about huge/famous companies."
+        f"You are helping a venture-scouting agent discover companies on the open web.\n"
+        f"Generate {n} short, diverse Google-style search queries (one per line, no numbering, no quotes) "
+        f"that would surface real non-US tech platform companies (roughly $1M-$5M USD revenue or recent funding raised).\n"
+        f"Target non-US regions (UK, France, Germany, India, UAE, Singapore, Spain, Switzerland, etc.).\n"
+        f"Include negative search terms like {NEGATIVE_SEARCH_VECTORS} to avoid US entities and aggregators.\n"
+        f"Favor queries likely to return company official websites or 'about/leadership' pages mentioning a founder/CEO."
     )
 
     gemini_key = config.get_gemini_api_key()
@@ -65,7 +60,6 @@ def _llm_brainstormed_queries(n: int) -> List[str]:
 
     try:
         if gemini_key:
-            # Try Gemini REST API
             import requests
 
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.GEMINI_MODEL}:generateContent?key={gemini_key}"
@@ -117,7 +111,7 @@ def generate_queries(max_queries: int = None) -> List[str]:
     llm_share = min(15, max(4, max_queries // 3))
     
     queries = []
-    # Always generate a rich batch of combinatorial and directory queries
+    # Always generate a rich batch of combinatorial and directory queries with negative vectors
     queries.extend(_combinatorial_queries(max_queries))
     queries.extend(_directory_style_queries(max_queries // 2))
     

@@ -31,10 +31,11 @@ def _scout_ai_batch(target_count: int = 6, sector_hint: str = "", region_hint: s
     prompt = (
         f"You are the autonomous Venture Lead Scout for The Venture Build (TVB).\n"
         f"Discover {target_count} REAL, active non-US tech platform startups matching ALL 4 TVB criteria:\n"
-        f"1. Recent Funding/Revenue: strictly between $1 Million and $5 Million USD (focus on recent 2024–2026 Seed / Pre-Series A / Series A or current ARR).\n"
+        f"1. Recent Funding/Revenue: strictly between $1 Million and $5 Million USD (focus on verified 2024–2026 Seed / Pre-Series A / Series A or current ARR).\n"
         f"2. Sector: Focus on {', '.join(sectors)}.\n"
-        f"3. Geography: Headquartered in non-US countries like {', '.join(regions)} (India, UK, France, Germany, Singapore, UAE, etc.) with minimal-to-no presence in the US.\n"
+        f"3. Geography: Headquartered in non-US countries like {', '.join(regions)} (India, UK, France, Germany, Singapore, UAE, etc.) with minimal-to-no presence in the US (exclude Delaware/US tax-flips).\n"
         f"4. Leadership: The exact PRIMARY Founder, Co-Founder, or CEO full name (e.g., Kshitij Jain for Joveo, Armin Moradi for Qashio - NOT secondary VPs, marketing leads, or PR contacts), their official company website, and their verified corporate email address.\n\n"
+        f"STRICT GROUNDING RULE: If exact revenue/funding or CEO name is unverified or ambiguous, omit or return empty. Do not guess or invent flat dummy numbers.\n\n"
         f"Return STRICT JSON array of objects with keys:\n"
         f"[\n"
         f"  {{\n"
