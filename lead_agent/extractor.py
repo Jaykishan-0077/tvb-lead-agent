@@ -86,21 +86,26 @@ def _extract_via_gemini(api_key: str, prompt: str) -> Optional[str]:
             pass
 
     # 2. Direct REST API fallback for Gemini
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.GEMINI_MODEL}:generateContent?key={api_key}"
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "responseMimeType": "application/json",
-                "temperature": 0.1,
-            },
-        }
-        res = requests.post(url, json=payload, timeout=20)
-        if res.status_code == 200:
-            data = res.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception:
-        pass
+    models_to_try = [config.GEMINI_MODEL, "gemini-flash-latest", "gemini-2.5-flash-lite"]
+    for model_name in models_to_try:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "temperature": 0.1,
+                },
+            }
+            res = requests.post(url, json=payload, timeout=45)
+            if res.status_code == 200:
+                data = res.json()
+                if "candidates" in data and data["candidates"]:
+                    parts = data["candidates"][0].get("content", {}).get("parts", [])
+                    if parts and "text" in parts[0]:
+                        return parts[0]["text"]
+        except Exception:
+            continue
     return None
 
 
@@ -147,8 +152,8 @@ def extract_record(page_text: str, source_url: str) -> Optional[Dict]:
     if not page_text.strip():
         return None
 
-    prompt = EXTRACTION_INSTRUCTIONS.format(
-        page_text=page_text[: config.PAGE_TEXT_CHAR_LIMIT]
+    prompt = EXTRACTION_INSTRUCTIONS.replace(
+        "{page_text}", page_text[: config.PAGE_TEXT_CHAR_LIMIT]
     )
     raw_response = None
 

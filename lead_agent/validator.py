@@ -12,9 +12,13 @@ in later via verify_email_external if desired).
 """
 
 import re
+import socket
 from typing import Dict, Optional
 
-import dns.resolver
+try:
+    import dns.resolver
+except ImportError:
+    dns = None
 
 from . import config
 
@@ -32,11 +36,18 @@ def _has_mx_record(domain: str) -> bool:
     if domain in _mx_cache:
         return _mx_cache[domain]
     ok = False
-    try:
-        answers = dns.resolver.resolve(domain, "MX", lifetime=6.0)
-        ok = len(answers) > 0
-    except Exception:
-        ok = False
+    if dns is not None:
+        try:
+            answers = dns.resolver.resolve(domain, "MX", lifetime=5.0)
+            ok = len(answers) > 0
+        except Exception:
+            ok = False
+    else:
+        try:
+            socket.gethostbyname(domain)
+            ok = True
+        except Exception:
+            ok = False
     _mx_cache[domain] = ok
     return ok
 
