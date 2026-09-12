@@ -40,15 +40,22 @@ _mx_cache: Dict[str, bool] = {}
 
 
 def _has_mx_record(domain: str) -> bool:
+    if not domain:
+        return False
     if domain in _mx_cache:
         return _mx_cache[domain]
     ok = False
     if dns is not None:
         try:
-            answers = dns.resolver.resolve(domain, "MX", lifetime=5.0)
+            answers = dns.resolver.resolve(domain, "MX", lifetime=2.5)
             ok = len(answers) > 0
         except Exception:
-            ok = False
+            # Fallback to host resolution if cloud container blocks UDP port 53
+            try:
+                socket.gethostbyname(domain)
+                ok = True
+            except Exception:
+                ok = False
     else:
         try:
             socket.gethostbyname(domain)
