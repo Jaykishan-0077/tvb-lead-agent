@@ -75,13 +75,14 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🔍 Search Provider")
     serper_key_input = st.text_input(
-        "Serper.dev API Key (Optional)",
-        value=os.environ.get("SERPER_API_KEY", ""),
+        "SerpApi / Serper Key (Optional)",
+        value=os.environ.get("SERPER_API_KEY") or os.environ.get("SERPAPI_API_KEY", ""),
         type="password",
-        help="Optional Google-backed search. If omitted, uses free DuckDuckGo search automatically.",
+        help="Optional Google-backed search (supports SerpApi.com or Serper.dev). If omitted, uses free DuckDuckGo search automatically.",
     )
     if serper_key_input:
         os.environ["SERPER_API_KEY"] = serper_key_input
+        os.environ["SERPAPI_API_KEY"] = serper_key_input
 
     st.markdown("---")
     st.subheader("🎯 Search Parameters")

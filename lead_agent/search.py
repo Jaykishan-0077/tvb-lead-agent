@@ -1,15 +1,14 @@
 """
 Search layer.
 
-Uses DuckDuckGo (via the `ddgs` package) as the default, key-free search
-backend so the reviewer can trigger a run without provisioning a paid search
-API. If a Serper.dev API key (SERPER_API_KEY) is present in the environment,
-it's used instead/in addition, since Google-backed results are often higher
-quality and less rate-limited.
+Supports:
+1. SerpApi (serpapi.com) / Serper (serper.dev) for Google-backed live search.
+2. DuckDuckGo (via ddgs package and direct HTML fallback) for 100% free search.
 """
 
 import os
 import time
+import urllib.parse
 from typing import Dict, List
 
 import requests
@@ -18,11 +17,35 @@ from . import config
 
 try:
     from ddgs import DDGS
-except ImportError:  # pragma: no cover - fallback name used by older package
+except ImportError:
     try:
         from duckduckgo_search import DDGS
     except ImportError:
         DDGS = None
+
+
+def _search_serpapi(query: str, num: int) -> List[Dict]:
+    api_key = os.environ.get("SERPAPI_API_KEY") or os.environ.get("SERPER_API_KEY", "")
+    if not api_key:
+        return []
+    try:
+        url = f"https://serpapi.com/search.json?q={urllib.parse.quote(query)}&num={num}&api_key={api_key}"
+        resp = requests.get(url, timeout=config.REQUEST_TIMEOUT_SECS)
+        if resp.status_code == 200:
+            data = resp.json()
+            out = []
+            for item in data.get("organic_results", [])[:num]:
+                out.append(
+                    {
+                        "title": item.get("title", ""),
+                        "url": item.get("link", ""),
+                        "snippet": item.get("snippet", ""),
+                    }
+                )
+            return out
+    except Exception:
+        pass
+    return []
 
 
 def _search_serper(query: str, num: int) -> List[Dict]:
@@ -36,20 +59,21 @@ def _search_serper(query: str, num: int) -> List[Dict]:
             json={"q": query, "num": num},
             timeout=config.REQUEST_TIMEOUT_SECS,
         )
-        resp.raise_for_status()
-        data = resp.json()
-        out = []
-        for item in data.get("organic", [])[:num]:
-            out.append(
-                {
-                    "title": item.get("title", ""),
-                    "url": item.get("link", ""),
-                    "snippet": item.get("snippet", ""),
-                }
-            )
-        return out
+        if resp.status_code == 200:
+            data = resp.json()
+            out = []
+            for item in data.get("organic", [])[:num]:
+                out.append(
+                    {
+                        "title": item.get("title", ""),
+                        "url": item.get("link", ""),
+                        "snippet": item.get("snippet", ""),
+                    }
+                )
+            return out
     except Exception:
-        return []
+        pass
+    return []
 
 
 def _search_ddg(query: str, num: int) -> List[Dict]:
@@ -76,7 +100,6 @@ def _search_ddg_html(query: str, num: int) -> List[Dict]:
     """Direct HTTP fallback to DuckDuckGo HTML search if DDGS library is absent or blocked."""
     try:
         from bs4 import BeautifulSoup
-        import urllib.parse
         
         headers = {
             "User-Agent": (
@@ -107,7 +130,6 @@ def _search_ddg_html(query: str, num: int) -> List[Dict]:
             snippet = snippet_elem.get_text().strip() if snippet_elem else ""
             
             if href and not href.startswith("/"):
-                # Clean up duckduckgo redirect urls if present
                 if "duckduckgo.com/l/?uddg=" in href:
                     parsed = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
                     href = parsed.get("uddg", [href])[0]
@@ -121,16 +143,20 @@ def _search_ddg_html(query: str, num: int) -> List[Dict]:
 
 def search(query: str, num: int = None) -> List[Dict]:
     num = num or config.RESULTS_PER_QUERY
-    # 1. Try Serper if key available
-    results = _search_serper(query, num)
+    # 1. Try SerpApi (serpapi.com)
+    results = _search_serpapi(query, num)
+
+    # 2. Try Serper (serper.dev)
+    if not results:
+        results = _search_serper(query, num)
     
-    # 2. Try DDGS library
+    # 3. Try DDGS library
     if not results:
         results = _search_ddg(query, num)
         
-    # 3. Try direct DDG HTML fallback
+    # 4. Try direct DDG HTML fallback
     if not results:
         results = _search_ddg_html(query, num)
         
-    time.sleep(0.5)  # polite backoff
+    time.sleep(0.3)
     return results
