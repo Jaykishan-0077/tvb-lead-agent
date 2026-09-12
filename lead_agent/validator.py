@@ -1,16 +1,20 @@
 """
 Validates extracted records against TVB's target-profile parameters and
-performs a 3-step B2B Finder-style verification workflow:
+performs a multi-tiered B2B Finder verification workflow:
 
-  1. Data Parsing & Persona Extraction (First/Last Name + Clean Corporate Domain).
-  2. Pattern Ingestion & Matrix Generation (first@, first.last@, f.last@, first_last@).
-  3. Real-Time DNS/MX & Non-Intrusive SMTP Handshake Verification.
+  1. Hunter.io Live B2B API Lookup (if HUNTER_API_KEY is present).
+  2. Persona Parsing & Domain Extraction (First/Last Name + Root Corporate Domain).
+  3. Pattern Ingestion & Matrix Generation (first@, first.last@, f.last@, first_last@).
+  4. Real-Time DNS/MX & Non-Intrusive SMTP Handshake Verification.
 """
 
+import os
 import re
 import smtplib
 import socket
 from typing import Dict, List, Optional
+
+import requests
 
 try:
     import dns.resolver
@@ -68,6 +72,26 @@ def _has_mx_record(domain: str) -> bool:
     return len(get_mx_hosts(domain)) > 0
 
 
+def _query_hunter_email(domain: str, first_name: str, last_name: str) -> Optional[str]:
+    """Queries Hunter.io API to find and verify the executive's email address."""
+    hunter_key = os.environ.get("HUNTER_API_KEY", "")
+    if not hunter_key or not domain or not first_name:
+        return None
+    try:
+        url = f"https://api.hunter.io/v2/email-finder?domain={domain}&first_name={first_name}&last_name={last_name}&api_key={hunter_key}"
+        resp = requests.get(url, timeout=config.REQUEST_TIMEOUT_SECS)
+        if resp.status_code == 200:
+            data = resp.json().get("data", {})
+            found_email = data.get("email")
+            score = data.get("score", 0)
+            if found_email and score >= 40:
+                if verify_email(found_email, f"{first_name} {last_name}".strip()):
+                    return found_email
+    except Exception:
+        pass
+    return None
+
+
 def generate_candidate_patterns(contact_name: str, domain: str) -> List[str]:
     """Generates standard B2B executive email pattern matrix."""
     if not contact_name or not domain:
@@ -102,7 +126,6 @@ def verify_email_smtp_handshake(email: str, timeout: float = 2.5) -> bool:
     if not mx_hosts:
         return False
 
-    # Attempt live SMTP handshake on primary MX
     for mx in mx_hosts[:1]:
         try:
             smtp = smtplib.SMTP(timeout=timeout)
@@ -116,7 +139,6 @@ def verify_email_smtp_handshake(email: str, timeout: float = 2.5) -> bool:
             elif code in (550, 551, 552, 553):
                 return False
         except Exception:
-            # If port 25 is firewalled by host/cloud provider, rely on valid MX resolution
             return True
 
     return True
@@ -197,8 +219,8 @@ def _clean_funding_display(record: Dict) -> str:
 
 
 def resolve_executive_email(raw_email: str, contact_name: str, source_url: str) -> Optional[str]:
-    """Applies Apollo/Finder style pattern resolution and verification."""
-    # 1. If an email was directly provided, test it
+    """Applies Hunter.io lookup and Apollo/Finder pattern matrix verification."""
+    # 1. If an email was directly provided and valid, test it
     if raw_email and verify_email(raw_email, contact_name):
         return raw_email
 
@@ -210,7 +232,17 @@ def resolve_executive_email(raw_email: str, contact_name: str, source_url: str) 
     if any(clean_domain == d or clean_domain.endswith("." + d) for d in DISALLOWED_EMAIL_DOMAINS):
         return None
 
-    # 3. Generate candidate pattern matrix and verify against live mail servers
+    # 3. Direct Hunter.io API Query (if Hunter key is active)
+    if contact_name:
+        parts = [p.strip() for p in re.sub(r"[^a-zA-Z\s]", "", contact_name).split() if p.strip()]
+        if parts:
+            f_name = parts[0]
+            l_name = parts[-1] if len(parts) > 1 else ""
+            hunter_result = _query_hunter_email(clean_domain, f_name, l_name)
+            if hunter_result:
+                return hunter_result
+
+    # 4. Pattern Matrix + Live MX Handshake
     patterns = generate_candidate_patterns(contact_name, clean_domain)
     for candidate in patterns:
         if verify_email(candidate, contact_name):
@@ -247,7 +279,7 @@ def evaluate_record(record: Dict) -> Optional[Dict]:
     if not _funding_in_range(record):
         return None
 
-    # Resolve and verify executive email via 3-step finder pattern engine
+    # Resolve and verify executive email via Hunter.io & Pattern Finder engine
     verified_email = resolve_executive_email(raw_email, contact_name, source_url)
     if not verified_email:
         return None

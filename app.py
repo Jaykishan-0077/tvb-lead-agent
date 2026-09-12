@@ -21,7 +21,15 @@ def _load_secret(name: str) -> str:
         return ""
 
 
-for key_name in ["GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "SERPER_API_KEY"]:
+for key_name in [
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "SERPER_API_KEY",
+    "SERPAPI_API_KEY",
+    "HUNTER_API_KEY",
+]:
     if key_name not in os.environ:
         secret_val = _load_secret(key_name)
         if secret_val:
@@ -83,6 +91,17 @@ with st.sidebar:
     if serper_key_input:
         os.environ["SERPER_API_KEY"] = serper_key_input
         os.environ["SERPAPI_API_KEY"] = serper_key_input
+
+    st.markdown("---")
+    st.subheader("📧 Email Verification")
+    hunter_key_input = st.text_input(
+        "Hunter.io API Key (Optional)",
+        value=os.environ.get("HUNTER_API_KEY", ""),
+        type="password",
+        help="Optional live B2B email finder & verification via Hunter.io API. If omitted, uses internal pattern matrix + DNS MX/SMTP verification.",
+    )
+    if hunter_key_input:
+        os.environ["HUNTER_API_KEY"] = hunter_key_input
 
     st.markdown("---")
     st.subheader("🎯 Search Parameters")
