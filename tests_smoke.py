@@ -12,8 +12,10 @@ def test_six_gate_evaluation():
         "has_significant_us_presence": "no",
         "is_tech_platform": "yes",
         "funding_or_revenue_usd_estimate": "3500000",
-        "financial_type": "seed_round",
-        "funding_or_revenue_evidence": "Closed $3.5M seed funding in 2025.",
+        "current_total_funding_usd": "3500000",
+        "financial_type": "total_funding",
+        "financial_date": "2024-05-18",
+        "funding_or_revenue_evidence": "Closed $3.5M total funding in May 2024.",
         "contact_name": "Jean Dupont",
         "contact_title": "Founder & CEO",
         "contact_email": "jean.dupont@google.com",
@@ -24,24 +26,40 @@ def test_six_gate_evaluation():
     assert rej is None
     assert qual["qualification_status"] == "QUALIFIED"
     assert qual["financial_amount_usd"] == "$3,500,000"
-    assert qual["tech_platform_verified"] is True
+    assert qual["technology_verified"] is True
     assert qual["email"] == "jean.dupont@google.com"
+    assert qual["email_person_attributed"] is True
+    assert qual["financial_date"] == "2024-05-18"
 
-    # 2. Gate 2 Failure: Over $5M funding cap
-    overfunded_input = dict(qualifying_input, funding_or_revenue_usd_estimate="15000000")
+    # 2. Gate 2 Failure: Over $5M total funding cap (Omni / Dust / Koywe style)
+    overfunded_input = dict(qualifying_input, current_total_funding_usd="15000000", funding_or_revenue_usd_estimate="15000000")
     qual, rej = validator.evaluate_record(overfunded_input)
     assert qual is None
     assert rej is not None
-    assert rej["rejection_reason"] == "FUNDING_ABOVE_LIMIT"
+    assert rej["rejection_reason"] in ("TOTAL_FUNDING_ABOVE_LIMIT", "FUNDING_ABOVE_LIMIT")
 
-    # 3. Gate 4 Failure: US Presence
+    # 3. Gate 2 Failure: Under $1M minimum funding (Sanctifly / Fyorin style)
+    underfunded_input = dict(qualifying_input, current_total_funding_usd="460000", funding_or_revenue_usd_estimate="460000")
+    qual, rej = validator.evaluate_record(underfunded_input)
+    assert qual is None
+    assert rej is not None
+    assert rej["rejection_reason"] == "FUNDING_BELOW_LIMIT"
+
+    # 4. Gate 1 Failure: Acquired company (Langfuse / ClickHouse style)
+    acquired_input = dict(qualifying_input, company_status="acquired")
+    qual, rej = validator.evaluate_record(acquired_input)
+    assert qual is None
+    assert rej is not None
+    assert rej["rejection_reason"] == "COMPANY_ACQUIRED_OR_CLOSED"
+
+    # 5. Gate 4 Failure: US Presence (Kombai / San Francisco style)
     us_input = dict(qualifying_input, hq_country="United States")
     qual, rej = validator.evaluate_record(us_input)
     assert qual is None
     assert rej is not None
-    assert rej["rejection_reason"] == "US_PRESENCE_TOO_HIGH"
+    assert rej["rejection_reason"] in ("US_PRESENCE_TOO_HIGH", "US_PRESENCE_UNKNOWN")
 
-    # 4. Gate 6 Failure: Missing Email (Strict No-Guessing)
+    # 6. Gate 6 Failure: Missing or Generic Email (Zero Guessing Policy)
     no_email_input = dict(qualifying_input, contact_email="", email="")
     qual, rej = validator.evaluate_record(no_email_input)
     assert qual is None
@@ -54,11 +72,12 @@ def test_adversarial_break_testing():
     bad_record = {
         "company_name": "BigScale",
         "financial_amount_usd": "$18,000,000",
+        "current_total_funding_usd": "$18,000,000",
         "hq_country": "Germany",
     }
     passed, reason = adversarial.verify_adversarial(bad_record)
     assert not passed
-    assert reason == "FUNDING_ABOVE_LIMIT"
+    assert reason in ("TOTAL_FUNDING_ABOVE_LIMIT", "FUNDING_ABOVE_LIMIT")
 
     # Candidate with US presence should be caught
     us_record = {

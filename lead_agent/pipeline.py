@@ -1,16 +1,17 @@
 """
-Two-Pass Autonomous Discovery & 6-Gate Verification Pipeline.
+Two-Pass Autonomous Discovery & 6-Gate Deterministic Verification Pipeline.
 
 Architecture:
-  Pass 1: Broad Multi-Vector AI & SERP Discovery.
-  Pass 2: Deep 6-Gate Deterministic Verification (G1 to G6).
+  Pass 1: Multi-Vector Discovery targeting verified $1M-$5M total funding & revenue non-US tech platforms.
+  Pass 2: Deep 6-Gate Deterministic Verification (G1 to G6) with strict email person attribution and actual date tracking.
   Pass 3: Adversarial Red-Team Verification Break Test.
 
 Outputs:
   - qualified_leads: Fully verified leads passing all 6 gates + adversarial audit.
-  - rejected_leads: Audit log of all evaluated candidates with explicit rejection reasons.
+  - rejected_leads: Audit log of all evaluated candidates with explicit rejection reasons and evidence.
 """
 
+import datetime
 import json
 import random
 from typing import Dict, Generator, List
@@ -32,12 +33,16 @@ def _scout_ai_batch(target_count: int = 6, sector_hint: str = "", region_hint: s
 
     prompt = (
         f"You are the autonomous Venture Lead Scout for The Venture Build (TVB).\n"
-        f"Discover {target_count} REAL, active non-US tech platform startups matching ALL 4 TVB criteria:\n"
-        f"1. Recent Funding/Revenue: strictly between $1 Million and $5 Million USD (focus on verified 2024–2026 Seed / Pre-Series A / Series A or current ARR).\n"
+        f"Discover {target_count} REAL, active non-US tech platform companies matching ALL mandatory TVB criteria:\n"
+        f"1. Total Funding / Revenue: Current TOTAL funding raised or verified ARR must be STRICTLY between $1 Million and $5 Million USD.\n"
+        f"   - DO NOT include companies that raised subsequent Series B/C rounds exceeding $5M total (e.g., exclude Omni, Koywe, Dust, Payflow, Retorio, Flowpay).\n"
+        f"   - DO NOT include companies that raised under $1M total (e.g., exclude Sanctifly, Fyorin).\n"
+        f"   - Include the ACTUAL date/year of the funding round (e.g. '2024-03-15' or '2023-11-07'), NOT runtime dates.\n"
         f"2. Sector: Focus on {', '.join(sectors)}.\n"
-        f"3. Geography: Headquartered in non-US countries like {', '.join(regions)} (India, UK, France, Germany, Singapore, UAE, etc.) with minimal-to-no presence in the US (exclude Delaware/US tax-flips).\n"
-        f"4. Leadership: The exact PRIMARY Founder, Co-Founder, or CEO full name (e.g., Kshitij Jain for Joveo, Armin Moradi for Qashio - NOT secondary VPs, marketing leads, or PR contacts), their official company website, and their verified corporate email address.\n\n"
-        f"STRICT GROUNDING RULE: If exact revenue/funding or CEO name is unverified or ambiguous, omit or return empty. Do not guess or invent flat dummy numbers.\n\n"
+        f"3. Geography: Headquartered in non-US countries like {', '.join(regions)} (India, UK, Europe, Singapore, UAE, Kenya, Latin America, Australia) with MINIMAL-TO-NO US presence (exclude companies with US headquarters or San Francisco offices like Kombai or Omni).\n"
+        f"4. Active & Independent: Company must be active and independent (exclude acquired companies like Langfuse).\n"
+        f"5. Leadership: The exact PRIMARY Founder, Co-Founder, or CEO full name (e.g., Felix Macharia for Kotani Pay, Prateek Bhargava for Mindler) and their verified corporate email address.\n\n"
+        f"STRICT GROUNDING: Return factual data only. If total funding >$5M, omit the company.\n\n"
         f"Return STRICT JSON array of objects with keys:\n"
         f"[\n"
         f"  {{\n"
@@ -47,11 +52,15 @@ def _scout_ai_batch(target_count: int = 6, sector_hint: str = "", region_hint: s
         f"    \"hq_country\": \"...\",\n"
         f"    \"has_significant_us_presence\": \"no\",\n"
         f"    \"is_tech_platform\": \"yes\",\n"
+        f"    \"financial_type\": \"total_funding\" | \"seed_round\" | \"annual_revenue\",\n"
+        f"    \"current_total_funding_usd\": \"...\",\n"
+        f"    \"current_revenue_usd\": \"...\",\n"
+        f"    \"financial_date\": \"YYYY-MM-DD\",\n"
         f"    \"funding_or_revenue_evidence\": \"...\",\n"
         f"    \"funding_or_revenue_usd_estimate\": \"...\",\n"
-        f"    \"financial_type\": \"seed_round\" | \"total_funding\" | \"annual_revenue\",\n"
+        f"    \"financial_source_2\": \"TechCrunch / Dealroom / Tracxn\",\n"
         f"    \"contact_name\": \"...\",\n"
-        f"    \"contact_title\": \"CEO / Co-founder\",\n"
+        f"    \"contact_title\": \"Founder & CEO\" | \"Co-Founder & CEO\",\n"
         f"    \"contact_email\": \"...\",\n"
         f"    \"source_url\": \"https://...\"\n"
         f"  }}\n"
@@ -107,7 +116,7 @@ def run(
         "qualified": 0,
     }
 
-    yield {"type": "log", "message": "🚀 Initiating Two-Pass 6-Gate Discovery & Verification Engine..."}
+    yield {"type": "log", "message": "🚀 Initiating Two-Pass 6-Gate Discovery & Verification Engine (Strict TVB Protocol)..."}
     yield {"type": "funnel", "funnel": funnel}
 
     # ----------------------------------------------------
@@ -119,15 +128,15 @@ def run(
     random.shuffle(regions_pool)
 
     batch_idx = 0
-    max_ai_batches = min(15, len(sectors_pool))
-    while scanned < max_domains and batch_idx < max_ai_batches:
+    max_ai_batches = min(20, len(sectors_pool) * 2)
+    while scanned < max_domains and batch_idx < max_ai_batches and len(qualified_leads) < min_leads:
         batch_idx += 1
         s_focus = sectors_pool[(batch_idx - 1) % len(sectors_pool)]
         r_focus = regions_pool[(batch_idx - 1) % len(regions_pool)]
 
         yield {
             "type": "log",
-            "message": f"[Pass 1 Scout Batch {batch_idx}/{max_ai_batches}] Scouting {s_focus} in {r_focus}...",
+            "message": f"[Pass 1 Scout Batch {batch_idx}] Scouting {s_focus} in {r_focus}...",
         }
         batch_candidates = _scout_ai_batch(target_count=6, sector_hint=s_focus, region_hint=r_focus)
 
@@ -136,7 +145,7 @@ def run(
             continue
 
         for cand in batch_candidates:
-            if scanned >= max_domains:
+            if scanned >= max_domains or len(qualified_leads) >= 25:
                 break
 
             c_name = cand.get("company_name", "Candidate")
@@ -150,7 +159,7 @@ def run(
             scanned += 1
             funnel["discovered"] += 1
             yield {"type": "progress", "scanned": scanned, "total": max_domains}
-            yield {"type": "log", "message": f"  -> Gate Checking: {c_name} ({cand.get('hq_country', 'Global')})"}
+            yield {"type": "log", "message": f"  -> 6-Gate Audit: {c_name} ({cand.get('hq_country', 'Global')})"}
 
             # Evaluate 6 Hard Gates
             qual, rej = validator.evaluate_record(cand)
@@ -172,7 +181,7 @@ def run(
                     yield {
                         "type": "log",
                         "message": f"     ✅ QUALIFIED #{len(qualified_leads)}: {qual['company_name']} "
-                        f"({qual['financial_amount_usd']} | {qual['contact_name']} <{qual['email']}>)",
+                        f"({qual['financial_amount_usd']} total | {qual['contact_name']} <{qual['email']}>)",
                     }
                 else:
                     qual["qualification_status"] = "REJECTED"
@@ -191,19 +200,19 @@ def run(
                     }
 
     # Pass 2 Continued: Live SERP Multi-Query Discovery if needed
-    if scanned < max_domains:
+    if scanned < max_domains and len(qualified_leads) < min_leads:
         yield {"type": "log", "message": "Pass 2: Executing Live SERP Multi-Vector Deep Discovery..."}
         queries = query_generator.generate_queries(max_queries)
 
         for qi, q in enumerate(queries, start=1):
-            if scanned >= max_domains:
+            if scanned >= max_domains or len(qualified_leads) >= min_leads:
                 break
 
             yield {"type": "log", "message": f"[{qi}/{len(queries)}] SERP Search: {q}"}
             results = search.search(q)
 
             for r in results:
-                if scanned >= max_domains:
+                if scanned >= max_domains or len(qualified_leads) >= min_leads:
                     break
                 url = r.get("url") or ""
                 if not url:
