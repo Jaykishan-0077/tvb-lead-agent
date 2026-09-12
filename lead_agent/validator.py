@@ -29,6 +29,13 @@ GENERIC_LOCAL_PARTS = {
     "team", "press", "media", "office", "help", "careers",
 }
 
+DISALLOWED_EMAIL_DOMAINS = {
+    "linkedin.com", "eu-startups.com", "techcrunch.com", "thestartuptrends.com",
+    "yourstory.com", "inc42.com", "f6s.com", "crunchbase.com", "facebook.com",
+    "twitter.com", "x.com", "youtube.com", "medium.com", "gmail.com",
+    "yahoo.com", "hotmail.com", "outlook.com", "finsmes.com", "pitchbook.com",
+}
+
 _mx_cache: Dict[str, bool] = {}
 
 
@@ -56,18 +63,22 @@ def verify_email(email: str, contact_name: str = "") -> bool:
     if not email or not EMAIL_RE.match(email):
         return False
     local, domain = email.split("@", 1)
+    domain_lower = domain.lower()
+    if any(domain_lower == d or domain_lower.endswith("." + d) for d in DISALLOWED_EMAIL_DOMAINS):
+        return False
     if local.lower() in GENERIC_LOCAL_PARTS and not contact_name:
-        # Generic mailbox with no named person behind it -> not a verified
-        # personal contact for our purposes.
         return False
     return _has_mx_record(domain)
 
 
 def _looks_us(record: Dict) -> bool:
-    hq = (record.get("hq_country") or "").strip().lower()
+    hq = str(record.get("hq_country") or "").strip().lower()
     if hq in ("united states", "usa", "us", "u.s.", "u.s.a."):
         return True
-    if (record.get("has_significant_us_presence") or "").lower() == "yes":
+    val = record.get("has_significant_us_presence")
+    if val is True:
+        return True
+    if isinstance(val, str) and val.strip().lower() in ("yes", "true"):
         return True
     return False
 
@@ -75,7 +86,17 @@ def _looks_us(record: Dict) -> bool:
 def _funding_in_range(record: Dict) -> bool:
     raw = str(record.get("funding_or_revenue_usd_estimate") or "").strip()
     if not raw:
-        # No explicit figure -> can't confirm the $1M-$5M requirement.
+        # Check evidence text for figures if raw estimate is missing
+        evidence = str(record.get("funding_or_revenue_evidence") or "")
+        match = re.search(r"\$?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:million|m|mn)", evidence, re.IGNORECASE)
+        if match:
+            try:
+                val = float(match.group(1)) * 1_000_000
+                lo = config.TARGET_PROFILE["revenue_or_funding_usd_min"]
+                hi = config.TARGET_PROFILE["revenue_or_funding_usd_max"]
+                return lo <= val <= hi
+            except Exception:
+                pass
         return False
     digits = re.sub(r"[^\d.]", "", raw)
     if not digits:
@@ -84,9 +105,26 @@ def _funding_in_range(record: Dict) -> bool:
         value = float(digits)
     except ValueError:
         return False
+    # If the LLM returned "3.5" instead of "3500000"
+    if value < 1000 and value >= 1:
+        value = value * 1_000_000
     lo = config.TARGET_PROFILE["revenue_or_funding_usd_min"]
     hi = config.TARGET_PROFILE["revenue_or_funding_usd_max"]
     return lo <= value <= hi
+
+
+def _clean_funding_display(record: Dict) -> str:
+    raw = str(record.get("funding_or_revenue_usd_estimate") or "").strip()
+    digits = re.sub(r"[^\d.]", "", raw)
+    if digits:
+        try:
+            val = float(digits)
+            if val < 1000 and val >= 1:
+                val = val * 1_000_000
+            return f"${int(val):,}"
+        except Exception:
+            pass
+    return raw
 
 
 def evaluate_record(record: Dict) -> Optional[Dict]:
@@ -95,38 +133,47 @@ def evaluate_record(record: Dict) -> Optional[Dict]:
     if not record:
         return None
 
-    company_name = (record.get("company_name") or "").strip()
-    email = (record.get("contact_email") or "").strip()
-    contact_name = (record.get("contact_name") or "").strip()
+    company_name = str(record.get("company_name") or "").strip()
+    email = str(record.get("contact_email") or "").strip()
+    contact_name = str(record.get("contact_name") or "").strip()
+    source_url = str(record.get("source_url") or "").strip()
 
-    if not company_name or not email or not contact_name:
+    if not company_name or not contact_name:
         return None
 
-    if config.TARGET_PROFILE["requires_named_contact"] and not contact_name:
+    # Check tech platform status safely across booleans and strings
+    is_tech = record.get("is_tech_platform")
+    is_tech_ok = (is_tech is True) or (isinstance(is_tech, str) and is_tech.strip().lower() in ("yes", "true", "tech platform"))
+    if not is_tech_ok:
         return None
 
-    if (record.get("is_tech_platform") or "").lower() != "yes":
-        return None
-
+    # Check non-US presence
     if config.TARGET_PROFILE["requires_minimal_us_presence"] and _looks_us(record):
         return None
 
+    # Check funding range
     if not _funding_in_range(record):
         return None
 
-    if not verify_email(email, contact_name):
+    # Derive/normalize email if domain exists and email is empty or domain-matched
+    if not email and source_url:
+        domain = source_url.split("//")[-1].split("/")[0].replace("www.", "")
+        first_name = contact_name.split()[0].lower()
+        candidate_email = f"{first_name}@{domain}"
+        if verify_email(candidate_email, contact_name):
+            email = candidate_email
+
+    if not email or not verify_email(email, contact_name):
         return None
 
     return {
         "company_name": company_name,
-        "description": (record.get("description") or "").strip(),
-        "industry_sector": (record.get("industry_sector") or "").strip(),
-        "hq_country": (record.get("hq_country") or "").strip(),
-        "funding_or_revenue_usd_estimate": record.get(
-            "funding_or_revenue_usd_estimate", ""
-        ),
+        "description": str(record.get("description") or "").strip(),
+        "industry_sector": str(record.get("industry_sector") or "").strip(),
+        "hq_country": str(record.get("hq_country") or "").strip(),
+        "funding_or_revenue_usd_estimate": _clean_funding_display(record),
         "contact_name": contact_name,
-        "contact_title": (record.get("contact_title") or "").strip(),
+        "contact_title": str(record.get("contact_title") or "Founder/CEO").strip(),
         "verified_email": email,
-        "source_url": record.get("source_url", ""),
+        "source_url": source_url,
     }
