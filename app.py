@@ -132,6 +132,7 @@ if run_clicked:
         ph_status.metric("Discovery Status", "Active")
 
         log_expander = st.expander("📋 Live Agent Execution Log", expanded=True)
+        log_placeholder = log_expander.empty()
         log_lines = []
         results_placeholder = st.empty()
 
@@ -143,7 +144,7 @@ if run_clicked:
             etype = event["type"]
             if etype == "log":
                 log_lines.append(event["message"])
-                log_expander.code("\n".join(log_lines[-250:]), language=None)
+                log_placeholder.code("\n".join(log_lines[-250:]), language=None)
             elif etype == "progress":
                 scanned_count = event["scanned"]
                 total_target = max(1, event["total"])
