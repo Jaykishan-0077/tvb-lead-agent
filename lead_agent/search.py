@@ -72,10 +72,65 @@ def _search_ddg(query: str, num: int) -> List[Dict]:
         return []
 
 
+def _search_ddg_html(query: str, num: int) -> List[Dict]:
+    """Direct HTTP fallback to DuckDuckGo HTML search if DDGS library is absent or blocked."""
+    try:
+        from bs4 import BeautifulSoup
+        import urllib.parse
+        
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            )
+        }
+        url = "https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(query)
+        resp = requests.post(
+            url,
+            headers=headers,
+            data={"q": query},
+            timeout=config.REQUEST_TIMEOUT_SECS,
+        )
+        if resp.status_code != 200:
+            return []
+        
+        soup = BeautifulSoup(resp.text, "html.parser")
+        results = []
+        for result in soup.find_all("div", class_="result"):
+            a_elem = result.find("a", class_="result__url") or result.find("a", class_="result__snippet")
+            title_elem = result.find("a", class_="result__a")
+            snippet_elem = result.find("a", class_="result__snippet")
+            
+            href = a_elem.get("href") if a_elem else (title_elem.get("href") if title_elem else "")
+            title = title_elem.get_text().strip() if title_elem else ""
+            snippet = snippet_elem.get_text().strip() if snippet_elem else ""
+            
+            if href and not href.startswith("/"):
+                # Clean up duckduckgo redirect urls if present
+                if "duckduckgo.com/l/?uddg=" in href:
+                    parsed = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+                    href = parsed.get("uddg", [href])[0]
+                results.append({"title": title, "url": href, "snippet": snippet})
+                if len(results) >= num:
+                    break
+        return results
+    except Exception:
+        return []
+
+
 def search(query: str, num: int = None) -> List[Dict]:
     num = num or config.RESULTS_PER_QUERY
+    # 1. Try Serper if key available
     results = _search_serper(query, num)
+    
+    # 2. Try DDGS library
     if not results:
         results = _search_ddg(query, num)
-        time.sleep(0.8)  # be polite to the free backend
+        
+    # 3. Try direct DDG HTML fallback
+    if not results:
+        results = _search_ddg_html(query, num)
+        
+    time.sleep(0.5)  # polite backoff
     return results

@@ -123,9 +123,13 @@ if run_clicked:
         st.session_state.leads = []
         progress_bar = st.progress(0, text="Initializing autonomous discovery...")
         col_m1, col_m2, col_m3 = st.columns(3)
-        m_scanned = col_m1.metric("Domains Scanned", 0)
-        m_leads = col_m2.metric("Qualifying Leads Found", 0)
-        m_status = col_m3.metric("Discovery Status", "Active")
+        ph_scanned = col_m1.empty()
+        ph_leads = col_m2.empty()
+        ph_status = col_m3.empty()
+
+        ph_scanned.metric("Domains Scanned", 0)
+        ph_leads.metric("Qualifying Leads Found", 0)
+        ph_status.metric("Discovery Status", "Active")
 
         log_expander = st.expander("📋 Live Agent Execution Log", expanded=True)
         log_lines = []
@@ -147,16 +151,16 @@ if run_clicked:
                 progress_bar.progress(
                     pct, text=f"Scanning & evaluating domains ({scanned_count}/{total_target})..."
                 )
-                col_m1.metric("Domains Scanned", scanned_count)
+                ph_scanned.metric("Domains Scanned", scanned_count)
             elif etype == "lead":
                 st.session_state.leads.append(event["record"])
-                col_m2.metric("Qualifying Leads Found", len(st.session_state.leads))
+                ph_leads.metric("Qualifying Leads Found", len(st.session_state.leads))
                 df = pd.DataFrame(st.session_state.leads)
                 results_placeholder.dataframe(df, use_container_width=True)
             elif etype == "done":
                 st.session_state.leads = event["leads"]
                 progress_bar.progress(1.0, text="Discovery run completed!")
-                col_m3.metric("Discovery Status", "Completed")
+                ph_status.metric("Discovery Status", "Completed")
 
         st.success(f"🎉 Run complete — Found {len(st.session_state.leads)} fully qualified leads matching TVB's profile!")
 

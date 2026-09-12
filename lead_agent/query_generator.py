@@ -114,13 +114,17 @@ def _llm_brainstormed_queries(n: int) -> List[str]:
 
 def generate_queries(max_queries: int = None) -> List[str]:
     max_queries = max_queries or config.MAX_SEARCH_QUERIES
-    llm_share = max(6, max_queries // 4)
-    combi_share = max_queries - llm_share
-
+    llm_share = min(15, max(4, max_queries // 3))
+    
     queries = []
-    queries.extend(_combinatorial_queries(int(combi_share * 0.6)))
-    queries.extend(_directory_style_queries(int(combi_share * 0.4)))
-    queries.extend(_llm_brainstormed_queries(llm_share))
+    # Always generate a rich batch of combinatorial and directory queries
+    queries.extend(_combinatorial_queries(max_queries))
+    queries.extend(_directory_style_queries(max_queries // 2))
+    
+    # Try LLM brainstorming if an API key is available
+    llm_queries = _llm_brainstormed_queries(llm_share)
+    if llm_queries:
+        queries = llm_queries + queries
 
     # De-dupe while preserving order
     seen = set()
