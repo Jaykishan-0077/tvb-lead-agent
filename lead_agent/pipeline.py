@@ -6,7 +6,7 @@ Orchestrates a fully autonomous agent run:
   3. Structured Extraction & Live DNS MX Validation.
 
 Zero hardcoded seeds or static lists: 100% discovered dynamically on the fly.
-Implemented as a streaming generator that yields real-time log, progress, and lead events.
+Continues comprehensive scanning to maximize discovered qualifying leads beyond the minimum threshold.
 """
 
 import json
@@ -16,7 +16,7 @@ from typing import Dict, Generator, List
 from . import config, extractor, query_generator, scraper, search, validator
 
 
-def _scout_ai_batch(target_count: int = 5, sector_hint: str = "", region_hint: str = "") -> List[Dict]:
+def _scout_ai_batch(target_count: int = 6, sector_hint: str = "", region_hint: str = "") -> List[Dict]:
     """Uses LLM to dynamically scout real non-US tech platform scale-ups meeting TVB's profile."""
     gemini_key = config.get_gemini_api_key()
     anthropic_key = config.get_anthropic_api_key()
@@ -92,7 +92,7 @@ def run(
     scanned = 0
 
     # Phase 1: Autonomous Dynamic Multi-Sector AI Venture Scouting
-    yield {"type": "log", "message": "Phase 1: Starting autonomous venture discovery across TVB Orbits & Non-US Hubs..."}
+    yield {"type": "log", "message": "Phase 1: Starting exhaustive autonomous venture discovery across TVB Orbits & Non-US Hubs..."}
 
     sectors_pool = list(config.SECTORS)
     regions_pool = list(config.REGIONS)
@@ -100,24 +100,24 @@ def run(
     random.shuffle(regions_pool)
 
     batch_idx = 0
-    max_ai_batches = 8
-    while len(leads) < min_leads and batch_idx < max_ai_batches:
+    max_ai_batches = min(12, len(sectors_pool))
+    while scanned < max_domains and batch_idx < max_ai_batches:
         batch_idx += 1
         s_focus = sectors_pool[(batch_idx - 1) % len(sectors_pool)]
         r_focus = regions_pool[(batch_idx - 1) % len(regions_pool)]
 
         yield {
             "type": "log",
-            "message": f"[AI Scout Batch {batch_idx}] Dynamically scanning {s_focus} scale-ups in {r_focus}...",
+            "message": f"[AI Scout Batch {batch_idx}/{max_ai_batches}] Scanning {s_focus} scale-ups in {r_focus}...",
         }
-        batch_candidates = _scout_ai_batch(target_count=5, sector_hint=s_focus, region_hint=r_focus)
+        batch_candidates = _scout_ai_batch(target_count=6, sector_hint=s_focus, region_hint=r_focus)
 
         if not batch_candidates:
             yield {"type": "log", "message": "  -> No candidates returned in this batch, rotating..."}
             continue
 
         for cand in batch_candidates:
-            if len(leads) >= min_leads:
+            if scanned >= max_domains:
                 break
 
             c_name = cand.get("company_name", "Candidate")
@@ -145,8 +145,8 @@ def run(
                 yield {"type": "log", "message": f"     ✗ {c_name} did not pass strict parameter/MX validation"}
 
     # Phase 2: Live Multi-Query Web Search & Deep Crawling
-    if len(leads) < min_leads:
-        yield {"type": "log", "message": "Phase 2: Generating live search queries across TVB Orbits..."}
+    if scanned < max_domains:
+        yield {"type": "log", "message": "Phase 2: Generating live search queries across remaining TVB Orbits..."}
         queries = query_generator.generate_queries(max_queries)
         yield {
             "type": "log",
@@ -154,14 +154,14 @@ def run(
         }
 
         for qi, q in enumerate(queries, start=1):
-            if len(leads) >= min_leads or scanned >= max_domains:
+            if scanned >= max_domains:
                 break
 
             yield {"type": "log", "message": f"[{qi}/{len(queries)}] Live Web Search: {q}"}
             results = search.search(q)
 
             for r in results:
-                if len(leads) >= min_leads or scanned >= max_domains:
+                if scanned >= max_domains:
                     break
                 url = r.get("url") or ""
                 if not url:
@@ -207,6 +207,6 @@ def run(
 
     yield {
         "type": "log",
-        "message": f"Discovery complete: Found {len(leads)} fully qualifying leads.",
+        "message": f"Exhaustive discovery complete: Found {len(leads)} fully qualifying leads across {scanned} scanned entities.",
     }
     yield {"type": "done", "leads": leads}
