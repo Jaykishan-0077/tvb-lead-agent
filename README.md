@@ -93,26 +93,29 @@ streamlit run app.py
 You can also paste the API key directly into the sidebar — no file editing
 required.
 
-### Required / optional keys
+### Supported AI Providers
 
 | Variable | Required? | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Yes | Structured extraction from scraped pages |
-| `SERPER_API_KEY` | No | Swaps in Google-backed search (better coverage) |
+| `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Optional* | Free AI Studio key for fast extraction |
+| `ANTHROPIC_API_KEY` | Optional* | Claude-based structured extraction |
+| `OPENAI_API_KEY` | Optional* | OpenAI-based structured extraction |
+| `SERPER_API_KEY` | No (Default: DuckDuckGo) | Swaps in Google-backed search for higher volume |
+
+*\*Provide at least one AI provider key in the sidebar or via secrets.*
 
 ## Deployment (Streamlit Community Cloud — recommended, free)
 
-1. Push this repo to a **public GitHub repo**.
-2. Go to [share.streamlit.io](https://share.streamlit.io), sign in, and
-   click "New app".
-3. Point it at this repo, branch `main`, main file `app.py`.
-4. In **Settings → Secrets**, paste:
+1. Fork or push this repository to GitHub: `https://github.com/Jaykishan-0077/tvb-lead-agent`
+2. Go to [share.streamlit.io](https://share.streamlit.io), sign in, and click **New app**.
+3. Select your repository (`Jaykishan-0077/tvb-lead-agent`), branch `main`, and main file path `app.py`.
+4. In **Settings → Secrets**, you can optionally add:
    ```toml
-   ANTHROPIC_API_KEY = "sk-ant-..."
+   GEMINI_API_KEY = "your-gemini-key"
+   # Or ANTHROPIC_API_KEY = "sk-ant-..."
+   # Or OPENAI_API_KEY = "sk-..."
    ```
-5. Deploy. The reviewer opens the live link, enters/confirms the key if
-   needed (or it's already in secrets), and clicks **Run agent** — no
-   cloning or local setup required.
+5. Click **Deploy**. The reviewer opens the live link, picks their preferred model / enters their key in the sidebar if not preset, and clicks **🚀 Run Lead Discovery Agent** — with zero local setup.
 
 The same `app.py`/`requirements.txt` also runs unmodified on Render,
 Railway, Replit, or Vercel (via a Streamlit-compatible buildpack) if
