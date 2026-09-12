@@ -43,16 +43,16 @@ schema exactly:
 }
 
 Rules:
-- contact_name/contact_email must be a named CEO or Co-founder specifically,
-  not a generic role like "info@" or "support@", unless that generic address
-  is explicitly attributed to a named founder in the text.
+- contact_name MUST be the PRIMARY Founder, Co-Founder, or CEO of the company.
+  Check leadership/team listings and extract the top-level Founder / CEO (e.g., Kshitij Jain for Joveo).
+  DO NOT extract secondary VPs, department heads, advisors, or press spokespersons.
+- contact_title should be their actual leadership title (e.g. "Founder and CEO", "Co-Founder & CEO").
 - funding_or_revenue_usd_estimate should be a plain number in USD if a
   specific figure is mentioned (e.g. "2500000"), otherwise leave blank.
 - has_significant_us_presence should be "yes" only if the text clearly
   describes US headquarters, a large US office/team, or the company
   positions itself as a US company.
-- Never fabricate an email address. Only report one if it literally appears
-  in the text.
+- If an executive email appears on their domain, report it. Otherwise leave blank for finder verification.
 
 WEBSITE TEXT:
 \"\"\"

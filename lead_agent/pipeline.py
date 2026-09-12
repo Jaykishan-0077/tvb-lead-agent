@@ -34,7 +34,7 @@ def _scout_ai_batch(target_count: int = 6, sector_hint: str = "", region_hint: s
         f"1. Recent Funding/Revenue: strictly between $1 Million and $5 Million USD (focus on recent 2024–2026 Seed / Pre-Series A / Series A or current ARR).\n"
         f"2. Sector: Focus on {', '.join(sectors)}.\n"
         f"3. Geography: Headquartered in non-US countries like {', '.join(regions)} (India, UK, France, Germany, Singapore, UAE, etc.) with minimal-to-no presence in the US.\n"
-        f"4. Leadership: Real named CEO or Co-founder, valid company domain, and realistic executive email address on their domain.\n\n"
+        f"4. Leadership: The exact PRIMARY Founder, Co-Founder, or CEO full name (e.g., Kshitij Jain for Joveo, Armin Moradi for Qashio - NOT secondary VPs, marketing leads, or PR contacts), their official company website, and their verified corporate email address.\n\n"
         f"Return STRICT JSON array of objects with keys:\n"
         f"[\n"
         f"  {{\n"
