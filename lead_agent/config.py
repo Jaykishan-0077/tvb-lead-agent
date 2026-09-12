@@ -97,7 +97,7 @@ US_STATE_HINTS = [
 # API keys / model config (read from environment or Streamlit secrets)
 # ---------------------------------------------------------------------------
 ANTHROPIC_MODEL = os.environ.get("TVB_ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
-GEMINI_MODEL = os.environ.get("TVB_GEMINI_MODEL", "gemini-3.6-flash")
+GEMINI_MODEL = os.environ.get("TVB_GEMINI_MODEL", "gemini-3.5-flash-lite")
 OPENAI_MODEL = os.environ.get("TVB_OPENAI_MODEL", "gpt-4o-mini")
 
 

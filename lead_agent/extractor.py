@@ -86,7 +86,7 @@ def _extract_via_gemini(api_key: str, prompt: str) -> Optional[str]:
             pass
 
     # 2. Direct REST API fallback for Gemini
-    models_to_try = [config.GEMINI_MODEL, "gemini-flash-latest", "gemini-2.5-flash-lite"]
+    models_to_try = [config.GEMINI_MODEL, "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-lite-latest"]
     for model_name in models_to_try:
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
