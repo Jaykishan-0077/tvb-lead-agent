@@ -1,12 +1,9 @@
-"""
-Turns raw scraped website text into a structured candidate record using an
-LLM, with an explicit instruction to leave any unverified field blank rather
-than guess (matches TVB's stated preference).
-"""
-
 import json
+import os
 import re
 from typing import Dict, Optional
+
+import requests
 
 from . import config
 
@@ -14,6 +11,12 @@ try:
     import anthropic
 except ImportError:
     anthropic = None
+
+try:
+    from google import genai
+    from google.genai import types as genai_types
+except ImportError:
+    genai = None
 
 EXTRACTION_INSTRUCTIONS = """\
 You are reviewing raw text scraped from a company's website (home page plus
@@ -60,29 +63,113 @@ WEBSITE TEXT:
 
 def _strip_code_fences(text: str) -> str:
     text = text.strip()
-    text = re.sub(r"^```(json)?", "", text).strip()
-    text = re.sub(r"```$", "", text).strip()
+    text = re.sub(r"^```(json)?\s*", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"\s*```$", "", text).strip()
     return text
 
 
+def _extract_via_gemini(api_key: str, prompt: str) -> Optional[str]:
+    # 1. Try google-genai SDK
+    if genai is not None:
+        try:
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=config.GEMINI_MODEL,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.1,
+                ),
+            )
+            return response.text
+        except Exception:
+            pass
+
+    # 2. Direct REST API fallback for Gemini
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.GEMINI_MODEL}:generateContent?key={api_key}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "temperature": 0.1,
+            },
+        }
+        res = requests.post(url, json=payload, timeout=20)
+        if res.status_code == 200:
+            data = res.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception:
+        pass
+    return None
+
+
+def _extract_via_anthropic(api_key: str, prompt: str) -> Optional[str]:
+    if anthropic is None:
+        return None
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model=config.ANTHROPIC_MODEL,
+            max_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return "".join(
+            block.text for block in resp.content if getattr(block, "type", "") == "text"
+        )
+    except Exception:
+        return None
+
+
+def _extract_via_openai(api_key: str, prompt: str) -> Optional[str]:
+    try:
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": config.OPENAI_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "response_format": {"type": "json_object"},
+        }
+        res = requests.post(url, headers=headers, json=payload, timeout=20)
+        if res.status_code == 200:
+            data = res.json()
+            return data["choices"][0]["message"]["content"]
+    except Exception:
+        pass
+    return None
+
+
 def extract_record(page_text: str, source_url: str) -> Optional[Dict]:
-    api_key = config.get_anthropic_api_key()
-    if not api_key or anthropic is None or not page_text.strip():
+    if not page_text.strip():
+        return None
+
+    prompt = EXTRACTION_INSTRUCTIONS.format(
+        page_text=page_text[: config.PAGE_TEXT_CHAR_LIMIT]
+    )
+    raw_response = None
+
+    # Determine provider
+    gemini_key = config.get_gemini_api_key()
+    anthropic_key = config.get_anthropic_api_key()
+    openai_key = config.get_openai_api_key()
+
+    if gemini_key:
+        raw_response = _extract_via_gemini(gemini_key, prompt)
+    elif anthropic_key:
+        raw_response = _extract_via_anthropic(anthropic_key, prompt)
+    elif openai_key:
+        raw_response = _extract_via_openai(openai_key, prompt)
+
+    if not raw_response:
         return None
 
     try:
-        client = anthropic.Anthropic(api_key=api_key)
-        prompt = EXTRACTION_INSTRUCTIONS.format(page_text=page_text[:6000])
-        resp = client.messages.create(
-            model=config.ANTHROPIC_MODEL,
-            max_tokens=600,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = "".join(
-            block.text for block in resp.content if getattr(block, "type", "") == "text"
-        )
-        raw = _strip_code_fences(raw)
-        data = json.loads(raw)
+        clean_json = _strip_code_fences(raw_response)
+        data = json.loads(clean_json)
         data["source_url"] = source_url
         return data
     except Exception:

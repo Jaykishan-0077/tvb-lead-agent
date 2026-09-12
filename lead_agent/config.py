@@ -96,8 +96,29 @@ US_STATE_HINTS = [
 # ---------------------------------------------------------------------------
 # API keys / model config (read from environment or Streamlit secrets)
 # ---------------------------------------------------------------------------
-ANTHROPIC_MODEL = os.environ.get("TVB_ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+ANTHROPIC_MODEL = os.environ.get("TVB_ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
+GEMINI_MODEL = os.environ.get("TVB_GEMINI_MODEL", "gemini-2.5-flash")
+OPENAI_MODEL = os.environ.get("TVB_OPENAI_MODEL", "gpt-4o-mini")
 
 
 def get_anthropic_api_key() -> str:
     return os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def get_gemini_api_key() -> str:
+    return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
+
+
+def get_openai_api_key() -> str:
+    return os.environ.get("OPENAI_API_KEY", "")
+
+
+def get_active_provider() -> str:
+    """Detects available LLM provider based on configured API keys."""
+    if get_gemini_api_key():
+        return "gemini"
+    if get_anthropic_api_key():
+        return "anthropic"
+    if get_openai_api_key():
+        return "openai"
+    return ""
