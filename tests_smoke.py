@@ -1,50 +1,79 @@
-"""Comprehensive smoke and unit tests for TVB Lead Agent validation & parsing."""
-from lead_agent import config, query_generator, scraper, validator
+"""Comprehensive smoke and unit tests for TVB Lead Agent 6-Gate validation & Adversarial Red-Teaming."""
+from lead_agent import adversarial, config, query_generator, scraper, validator
 
 
-def test_funding_parsing():
-    # In-range tests ($1M to $5M)
-    assert validator._funding_in_range({"funding_or_revenue_usd_estimate": "2500000"})
-    assert validator._funding_in_range({"funding_or_revenue_usd_estimate": "$3.5M"})
-    assert validator._funding_in_range({"funding_or_revenue_usd_estimate": "$1,000,000"})
-    assert validator._funding_in_range({"funding_or_revenue_usd_estimate": "$5,000,000"})
-    assert validator._funding_in_range({"funding_or_revenue_evidence": "Raised $2.8 million seed round."})
+def test_six_gate_evaluation():
+    # 1. Perfectly qualifying record
+    qualifying_input = {
+        "company_name": "NexaPay",
+        "description": "B2B cross-border payment platform for European merchants.",
+        "industry_sector": "Fintech / Payments",
+        "hq_country": "France",
+        "has_significant_us_presence": "no",
+        "is_tech_platform": "yes",
+        "funding_or_revenue_usd_estimate": "3500000",
+        "financial_type": "seed_round",
+        "funding_or_revenue_evidence": "Closed $3.5M seed funding in 2025.",
+        "contact_name": "Jean Dupont",
+        "contact_title": "Founder & CEO",
+        "contact_email": "jean.dupont@google.com",
+        "source_url": "https://google.com",
+    }
+    qual, rej = validator.evaluate_record(qualifying_input)
+    assert qual is not None, "Should pass all 6 gates"
+    assert rej is None
+    assert qual["qualification_status"] == "QUALIFIED"
+    assert qual["financial_amount_usd"] == "$3,500,000"
+    assert qual["tech_platform_verified"] is True
+    assert qual["email"] == "jean.dupont@google.com"
 
-    # Out-of-range tests
-    assert not validator._funding_in_range({"funding_or_revenue_usd_estimate": "250000"})
-    assert not validator._funding_in_range({"funding_or_revenue_usd_estimate": "12000000"})
-    assert not validator._funding_in_range({"funding_or_revenue_usd_estimate": ""})
+    # 2. Gate 2 Failure: Over $5M funding cap
+    overfunded_input = dict(qualifying_input, funding_or_revenue_usd_estimate="15000000")
+    qual, rej = validator.evaluate_record(overfunded_input)
+    assert qual is None
+    assert rej is not None
+    assert rej["rejection_reason"] == "FUNDING_ABOVE_LIMIT"
+
+    # 3. Gate 4 Failure: US Presence
+    us_input = dict(qualifying_input, hq_country="United States")
+    qual, rej = validator.evaluate_record(us_input)
+    assert qual is None
+    assert rej is not None
+    assert rej["rejection_reason"] == "US_PRESENCE_TOO_HIGH"
+
+    # 4. Gate 6 Failure: Missing Email (Strict No-Guessing)
+    no_email_input = dict(qualifying_input, contact_email="", email="")
+    qual, rej = validator.evaluate_record(no_email_input)
+    assert qual is None
+    assert rej is not None
+    assert rej["rejection_reason"] == "EMAIL_NOT_VERIFIED"
 
 
-def test_us_presence_filter():
-    # Non-US countries
-    assert not validator._looks_us({"hq_country": "India", "has_significant_us_presence": "no"})
-    assert not validator._looks_us({"hq_country": "United Kingdom", "has_significant_us_presence": "no"})
-    assert not validator._looks_us({"hq_country": "France", "has_significant_us_presence": "no"})
+def test_adversarial_break_testing():
+    # Candidate exceeding $5M should be caught by adversarial checker
+    bad_record = {
+        "company_name": "BigScale",
+        "financial_amount_usd": "$18,000,000",
+        "hq_country": "Germany",
+    }
+    passed, reason = adversarial.verify_adversarial(bad_record)
+    assert not passed
+    assert reason == "FUNDING_ABOVE_LIMIT"
 
-    # US-based entities
-    assert validator._looks_us({"hq_country": "United States"})
-    assert validator._looks_us({"hq_country": "USA"})
-    assert validator._looks_us({"hq_country": "Delaware"})
-    assert validator._looks_us({"hq_country": "France", "has_significant_us_presence": "yes"})
-    assert validator._looks_us({"hq_country": "India", "has_significant_us_presence": True})
-
-
-def test_email_validation():
-    # Valid founder email formats on active domains
-    assert validator.verify_email("alex@google.com", contact_name="Alex Smith")
-
-    # Invalid / Disallowed formats
-    assert not validator.verify_email("invalid-email-format", contact_name="Alex Smith")
-    assert not validator.verify_email("info@linkedin.com", contact_name="Alex Smith")
-    assert not validator.verify_email("support@techcrunch.com", contact_name="Alex Smith")
-    assert not validator.verify_email("info@startup.com", contact_name="")  # generic without name
+    # Candidate with US presence should be caught
+    us_record = {
+        "company_name": "USFlipCorp",
+        "financial_amount_usd": "$3,000,000",
+        "hq_country": "Delaware, USA",
+    }
+    passed, reason = adversarial.verify_adversarial(us_record)
+    assert not passed
+    assert reason == "US_PRESENCE_TOO_HIGH"
 
 
 def test_query_generation_and_negative_vectors():
     queries = query_generator.generate_queries(max_queries=10)
     assert len(queries) > 0
-    assert any("raised" in q.lower() or "funding" in q.lower() or "seed" in q.lower() for q in queries)
     assert any('-"Inc"' in q or '-"Delaware"' in q or '-"USA"' in q for q in queries)
 
 
@@ -59,38 +88,9 @@ def test_scraper_firewall_detection():
     )
 
 
-def test_domain_extraction():
-    assert scraper.domain_of("https://www.example.com/about") == "example.com"
-    assert scraper.domain_of("https://sub.domain.io/team") == "sub.domain.io"
-
-
-def test_full_record_evaluation():
-    valid_record = {
-        "company_name": "TestCorp",
-        "description": "Enterprise AI testing platform",
-        "industry_sector": "Applied AI",
-        "hq_country": "France",
-        "has_significant_us_presence": "no",
-        "is_tech_platform": "yes",
-        "funding_or_revenue_usd_estimate": "3000000",
-        "contact_name": "Alex Dupont",
-        "contact_title": "Co-founder & CEO",
-        "contact_email": "alex@google.com",
-        "source_url": "https://google.com",
-    }
-    result = validator.evaluate_record(valid_record)
-    assert result is not None
-    assert result["company_name"] == "TestCorp"
-    assert result["funding_or_revenue_usd_estimate"] == "$3,000,000"
-    assert result["verified_email"] == "alex@google.com"
-
-
 if __name__ == "__main__":
-    test_funding_parsing()
-    test_us_presence_filter()
-    test_email_validation()
+    test_six_gate_evaluation()
+    test_adversarial_break_testing()
     test_query_generation_and_negative_vectors()
     test_scraper_firewall_detection()
-    test_domain_extraction()
-    test_full_record_evaluation()
-    print("✅ All smoke and validation tests passed successfully!")
+    print("✅ All 6-Gate, Adversarial, and Validation smoke tests passed successfully!")

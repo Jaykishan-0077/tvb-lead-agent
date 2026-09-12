@@ -1,8 +1,13 @@
 """
 Central configuration for the TVB Lead Discovery Agent.
 
-Everything the agent needs to know about *what it is looking for* lives here,
-so the rest of the pipeline stays generic and reusable.
+Target Architecture & Profile (from TVB's brief):
+- Revenue or funding strictly between $1M and $5M USD.
+- Tech-enabled platform.
+- Minimal-to-no US presence.
+- Named primary CEO/Co-founder.
+- Exact corporate email with reliable primary or Hunter evidence (NO INFERRED/FABRICATED EMAILS).
+- Six-Gate Hard Verification + Adversarial Break Testing.
 """
 
 import os
@@ -15,12 +20,62 @@ TARGET_PROFILE = {
     "revenue_or_funding_usd_max": 5_000_000,
     "requires_tech_platform": True,
     "requires_minimal_us_presence": True,
-    "requires_named_contact": True,  # CEO or Co-founder name + email
+    "requires_named_contact": True,  # Primary CEO or Co-founder
+    "requires_verified_email": True,
 }
 
-# Sectors pulled from TVB's Orbits (healthcare, education, AI, cybersecurity,
-# digital twin, fintech/payments, travel) plus general SaaS/B2B tech, since
-# TVB also serves broader "technology-enabled" scale-ups.
+# Machine-Readable Hard Rejection Codes
+REJECTION_REASONS = {
+    "FUNDING_ABOVE_LIMIT": "Total funding or revenue exceeds $5M USD cap.",
+    "FUNDING_BELOW_LIMIT": "Funding or revenue is below the minimum $1M USD threshold.",
+    "REVENUE_NOT_VERIFIED": "No verified primary or secondary financial evidence found.",
+    "OUTDATED_FINANCIAL_DATA": "Financial figures are outdated or reference stale predecessor rounds.",
+    "US_PRESENCE_TOO_HIGH": "Entity has US headquarters, US operating entity, or significant US presence.",
+    "CEO_NOT_VERIFIED": "Primary CEO or Co-founder name could not be verified in leadership listings.",
+    "CEO_ROLE_OUTDATED": "Executive listed is a former executive, secondary VP, or unverified advisor.",
+    "EMAIL_NOT_VERIFIED": "No exact published primary email or high-confidence Hunter.io verification found.",
+    "EMAIL_NOT_ASSOCIATED_WITH_CONTACT": "Discovered email does not belong to the named primary executive.",
+    "COMPANY_INACTIVE": "Domain is parked, inaccessible, or company is defunct.",
+    "TECH_PLATFORM_NOT_VERIFIED": "Company does not operate a proprietary tech platform or SaaS product.",
+    "CONFLICTING_SOURCES": "Conflicting data points between primary site and secondary registries.",
+    "INSUFFICIENT_EVIDENCE": "Record lacks sufficient multi-source corroboration.",
+}
+
+# Full Audit Trail Schema Columns for Export
+AUDIT_EXPORT_COLUMNS = [
+    "company_name",
+    "description",
+    "industry_sector",
+    "hq_country",
+    "hq_source",
+    "financial_type",
+    "financial_amount_usd",
+    "financial_date",
+    "financial_source",
+    "financial_evidence",
+    "tech_platform_verified",
+    "tech_source",
+    "tech_evidence",
+    "us_presence_status",
+    "us_presence_source",
+    "us_presence_evidence",
+    "contact_name",
+    "contact_title",
+    "contact_source",
+    "contact_evidence",
+    "email",
+    "email_source",
+    "email_evidence",
+    "email_verification_method",
+    "company_active",
+    "active_source",
+    "qualification_status",
+    "rejection_reason",
+    "overall_confidence",
+    "checked_at",
+]
+
+# Sectors pulled from TVB's Orbits
 SECTORS = [
     "healthcare technology",
     "digital health",
@@ -40,11 +95,7 @@ SECTORS = [
     "B2B2C platform",
 ]
 
-# Non-US geographies to bias discovery toward companies with "minimal to no
-# US presence." This list is only used to *steer* search queries — the
-# extraction/validation step is what actually decides US-presence, since a
-# company headquartered in one of these regions could still have a large US
-# office (and vice versa).
+# Non-US geographies to bias discovery
 REGIONS = [
     "India",
     "United Kingdom",
@@ -75,25 +126,17 @@ FUNDING_SIGNAL_PHRASES = [
 ]
 
 # ---------------------------------------------------------------------------
-# Run limits (kept conservative so a single click doesn't run forever or
-# blow through free API tiers)
+# Run limits
 # ---------------------------------------------------------------------------
 MIN_QUALIFYING_LEADS = 15
-MAX_DOMAINS_TO_SCAN = int(os.environ.get("TVB_MAX_DOMAINS", "90"))
-MAX_SEARCH_QUERIES = int(os.environ.get("TVB_MAX_QUERIES", "45"))
+MAX_DOMAINS_TO_SCAN = int(os.environ.get("TVB_MAX_DOMAINS", "100"))
+MAX_SEARCH_QUERIES = int(os.environ.get("TVB_MAX_QUERIES", "50"))
 RESULTS_PER_QUERY = int(os.environ.get("TVB_RESULTS_PER_QUERY", "6"))
 REQUEST_TIMEOUT_SECS = 12
-PAGE_TEXT_CHAR_LIMIT = 6000
-
-# US indicators used as a light heuristic before the LLM extraction step
-US_TLDS = (".us", ".gov")
-US_STATE_HINTS = [
-    "california", "new york", "texas", "san francisco", "delaware",
-    "united states", "usa", "u.s.", "america", "silicon valley",
-]
+PAGE_TEXT_CHAR_LIMIT = 7000
 
 # ---------------------------------------------------------------------------
-# API keys / model config (read from environment or Streamlit secrets)
+# API keys / model config
 # ---------------------------------------------------------------------------
 ANTHROPIC_MODEL = os.environ.get("TVB_ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
 GEMINI_MODEL = os.environ.get("TVB_GEMINI_MODEL", "gemini-3.5-flash-lite")
@@ -113,7 +156,6 @@ def get_openai_api_key() -> str:
 
 
 def get_active_provider() -> str:
-    """Detects available LLM provider based on configured API keys."""
     if get_gemini_api_key():
         return "gemini"
     if get_anthropic_api_key():

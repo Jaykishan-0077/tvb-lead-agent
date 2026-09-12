@@ -1,19 +1,21 @@
 """
-Orchestrates a fully autonomous agent run:
+Two-Pass Autonomous Discovery & 6-Gate Verification Pipeline.
 
-  1. Autonomous Multi-Vector AI Venture Scouting (Dynamic sector × region batches).
-  2. Live Web Search & Autonomous Deep Web Crawling (DuckDuckGo / Serper).
-  3. Structured Extraction & Live DNS MX Validation.
+Architecture:
+  Pass 1: Broad Multi-Vector AI & SERP Discovery.
+  Pass 2: Deep 6-Gate Deterministic Verification (G1 to G6).
+  Pass 3: Adversarial Red-Team Verification Break Test.
 
-Zero hardcoded seeds or static lists: 100% discovered dynamically on the fly.
-Continues comprehensive scanning to maximize discovered qualifying leads beyond the minimum threshold.
+Outputs:
+  - qualified_leads: Fully verified leads passing all 6 gates + adversarial audit.
+  - rejected_leads: Audit log of all evaluated candidates with explicit rejection reasons.
 """
 
 import json
 import random
 from typing import Dict, Generator, List
 
-from . import config, extractor, query_generator, scraper, search, validator
+from . import adversarial, config, extractor, query_generator, scraper, search, validator
 
 
 def _scout_ai_batch(target_count: int = 6, sector_hint: str = "", region_hint: str = "") -> List[Dict]:
@@ -47,6 +49,7 @@ def _scout_ai_batch(target_count: int = 6, sector_hint: str = "", region_hint: s
         f"    \"is_tech_platform\": \"yes\",\n"
         f"    \"funding_or_revenue_evidence\": \"...\",\n"
         f"    \"funding_or_revenue_usd_estimate\": \"...\",\n"
+        f"    \"financial_type\": \"seed_round\" | \"total_funding\" | \"annual_revenue\",\n"
         f"    \"contact_name\": \"...\",\n"
         f"    \"contact_title\": \"CEO / Co-founder\",\n"
         f"    \"contact_email\": \"...\",\n"
@@ -89,19 +92,34 @@ def run(
     max_queries = max_queries or config.MAX_SEARCH_QUERIES
 
     seen_domains = set()
-    leads = []
+    qualified_leads = []
+    rejected_leads = []
     scanned = 0
 
-    # Phase 1: Autonomous Dynamic Multi-Sector AI Venture Scouting
-    yield {"type": "log", "message": "Phase 1: Starting exhaustive autonomous venture discovery across TVB Orbits & Non-US Hubs..."}
+    funnel = {
+        "discovered": 0,
+        "fin_pass": 0,
+        "tech_pass": 0,
+        "us_pass": 0,
+        "ceo_pass": 0,
+        "email_pass": 0,
+        "adversarial_pass": 0,
+        "qualified": 0,
+    }
 
+    yield {"type": "log", "message": "🚀 Initiating Two-Pass 6-Gate Discovery & Verification Engine..."}
+    yield {"type": "funnel", "funnel": funnel}
+
+    # ----------------------------------------------------
+    # Pass 1 & 2: Dynamic Scouting & 6-Gate Verification
+    # ----------------------------------------------------
     sectors_pool = list(config.SECTORS)
     regions_pool = list(config.REGIONS)
     random.shuffle(sectors_pool)
     random.shuffle(regions_pool)
 
     batch_idx = 0
-    max_ai_batches = min(12, len(sectors_pool))
+    max_ai_batches = min(15, len(sectors_pool))
     while scanned < max_domains and batch_idx < max_ai_batches:
         batch_idx += 1
         s_focus = sectors_pool[(batch_idx - 1) % len(sectors_pool)]
@@ -109,12 +127,12 @@ def run(
 
         yield {
             "type": "log",
-            "message": f"[AI Scout Batch {batch_idx}/{max_ai_batches}] Scanning {s_focus} scale-ups in {r_focus}...",
+            "message": f"[Pass 1 Scout Batch {batch_idx}/{max_ai_batches}] Scouting {s_focus} in {r_focus}...",
         }
         batch_candidates = _scout_ai_batch(target_count=6, sector_hint=s_focus, region_hint=r_focus)
 
         if not batch_candidates:
-            yield {"type": "log", "message": "  -> No candidates returned in this batch, rotating..."}
+            yield {"type": "log", "message": "  -> No candidates in batch, rotating sector..."}
             continue
 
         for cand in batch_candidates:
@@ -130,35 +148,58 @@ def run(
                 seen_domains.add(domain)
 
             scanned += 1
+            funnel["discovered"] += 1
             yield {"type": "progress", "scanned": scanned, "total": max_domains}
-            yield {"type": "log", "message": f"  -> Evaluating candidate: {c_name} ({cand.get('hq_country', 'Global')})"}
+            yield {"type": "log", "message": f"  -> Gate Checking: {c_name} ({cand.get('hq_country', 'Global')})"}
 
-            qualifying = validator.evaluate_record(cand)
-            if qualifying:
-                leads.append(qualifying)
-                yield {"type": "lead", "record": qualifying}
-                yield {
-                    "type": "log",
-                    "message": f"     ✓ Verified lead #{len(leads)}: {qualifying['company_name']} "
-                    f"({qualifying['funding_or_revenue_usd_estimate']}, {qualifying['contact_name']} <{qualifying['verified_email']}>)",
-                }
+            # Evaluate 6 Hard Gates
+            qual, rej = validator.evaluate_record(cand)
+            if qual:
+                funnel["fin_pass"] += 1
+                funnel["tech_pass"] += 1
+                funnel["us_pass"] += 1
+                funnel["ceo_pass"] += 1
+                funnel["email_pass"] += 1
+
+                # Pass 3: Adversarial Break-Testing
+                adv_pass, adv_reason = adversarial.verify_adversarial(qual)
+                if adv_pass:
+                    funnel["adversarial_pass"] += 1
+                    funnel["qualified"] += 1
+                    qualified_leads.append(qual)
+                    yield {"type": "lead", "record": qual}
+                    yield {"type": "funnel", "funnel": funnel}
+                    yield {
+                        "type": "log",
+                        "message": f"     ✅ QUALIFIED #{len(qualified_leads)}: {qual['company_name']} "
+                        f"({qual['financial_amount_usd']} | {qual['contact_name']} <{qual['email']}>)",
+                    }
+                else:
+                    qual["qualification_status"] = "REJECTED"
+                    qual["rejection_reason"] = adv_reason
+                    rejected_leads.append(qual)
+                    yield {
+                        "type": "log",
+                        "message": f"     🛡️ Adversarial Verifier rejected {c_name}: {adv_reason}",
+                    }
             else:
-                yield {"type": "log", "message": f"     ✗ {c_name} did not pass strict parameter/MX validation"}
+                if rej:
+                    rejected_leads.append(rej)
+                    yield {
+                        "type": "log",
+                        "message": f"     ❌ Rejected {c_name}: {rej.get('rejection_reason')}",
+                    }
 
-    # Phase 2: Live Multi-Query Web Search & Deep Crawling
+    # Pass 2 Continued: Live SERP Multi-Query Discovery if needed
     if scanned < max_domains:
-        yield {"type": "log", "message": "Phase 2: Generating live search queries across remaining TVB Orbits..."}
+        yield {"type": "log", "message": "Pass 2: Executing Live SERP Multi-Vector Deep Discovery..."}
         queries = query_generator.generate_queries(max_queries)
-        yield {
-            "type": "log",
-            "message": f"Generated {len(queries)} multi-vector queries across {len(config.SECTORS)} sectors.",
-        }
 
         for qi, q in enumerate(queries, start=1):
             if scanned >= max_domains:
                 break
 
-            yield {"type": "log", "message": f"[{qi}/{len(queries)}] Live Web Search: {q}"}
+            yield {"type": "log", "message": f"[{qi}/{len(queries)}] SERP Search: {q}"}
             results = search.search(q)
 
             for r in results:
@@ -172,42 +213,53 @@ def run(
                     continue
                 seen_domains.add(domain)
                 scanned += 1
+                funnel["discovered"] += 1
 
-                yield {
-                    "type": "progress",
-                    "scanned": scanned,
-                    "total": max_domains,
-                }
-                yield {"type": "log", "message": f"  -> Scraping: {domain}"}
+                yield {"type": "progress", "scanned": scanned, "total": max_domains}
+                yield {"type": "log", "message": f"  -> Scraping & Evaluating: {domain}"}
 
                 page_text = scraper.gather_site_text(url)
                 if not page_text or len(page_text) < 150:
-                    yield {"type": "log", "message": "     (skipped, thin/empty content)"}
                     continue
 
                 record = extractor.extract_record(page_text, source_url=url)
                 if not record:
-                    yield {"type": "log", "message": "     (extraction skipped)"}
                     continue
 
-                qualifying = validator.evaluate_record(record)
-                if qualifying:
-                    leads.append(qualifying)
-                    yield {"type": "lead", "record": qualifying}
-                    yield {
-                        "type": "log",
-                        "message": f"     ✓ Verified lead #{len(leads)}: {qualifying['company_name']} "
-                        f"({qualifying['funding_or_revenue_usd_estimate']}, {qualifying['verified_email']})",
-                    }
+                qual, rej = validator.evaluate_record(record)
+                if qual:
+                    funnel["fin_pass"] += 1
+                    funnel["tech_pass"] += 1
+                    funnel["us_pass"] += 1
+                    funnel["ceo_pass"] += 1
+                    funnel["email_pass"] += 1
+
+                    adv_pass, adv_reason = adversarial.verify_adversarial(qual)
+                    if adv_pass:
+                        funnel["adversarial_pass"] += 1
+                        funnel["qualified"] += 1
+                        qualified_leads.append(qual)
+                        yield {"type": "lead", "record": qual}
+                        yield {"type": "funnel", "funnel": funnel}
+                        yield {
+                            "type": "log",
+                            "message": f"     ✅ QUALIFIED #{len(qualified_leads)}: {qual['company_name']} ({qual['email']})",
+                        }
+                    else:
+                        qual["qualification_status"] = "REJECTED"
+                        qual["rejection_reason"] = adv_reason
+                        rejected_leads.append(qual)
                 else:
-                    name = record.get("company_name") or domain
-                    yield {
-                        "type": "log",
-                        "message": f"     ✗ {name} did not meet all TVB parameters, skipped",
-                    }
+                    if rej:
+                        rejected_leads.append(rej)
 
     yield {
         "type": "log",
-        "message": f"Exhaustive discovery complete: Found {len(leads)} fully qualifying leads across {scanned} scanned entities.",
+        "message": f"🎉 Discovery Run Completed: {len(qualified_leads)} fully QUALIFIED leads | {len(rejected_leads)} REJECTED candidates logged.",
     }
-    yield {"type": "done", "leads": leads}
+    yield {
+        "type": "done",
+        "leads": qualified_leads,
+        "rejected_leads": rejected_leads,
+        "funnel": funnel,
+    }

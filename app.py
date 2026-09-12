@@ -5,14 +5,14 @@ import streamlit as st
 from lead_agent import config, pipeline
 
 st.set_page_config(
-    page_title="TVB Lead Discovery Agent",
+    page_title="TVB Lead Discovery & 6-Gate Verification Agent",
     page_icon="🧭",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ---------------------------------------------------------------------------
-# API key handling: check Streamlit secrets first, then environment variables
+# API key handling: Streamlit secrets first, then environment variables
 # ---------------------------------------------------------------------------
 def _load_secret(name: str) -> str:
     try:
@@ -35,11 +35,10 @@ for key_name in [
         if secret_val:
             os.environ[key_name] = secret_val
 
-st.title("🧭 TVB Lead Discovery Agent")
+st.title("🧭 TVB Lead Discovery & Verification Agent")
 st.caption(
-    "An autonomous agent designed for **The Venture Build (TVB)** to scout scale-ups "
-    "matching TVB's target profile: **$1M–$5M revenue/funding**, **tech platform**, "
-    "**minimal-to-no US presence**, with a **named CEO/Co-founder** and a **verified email**."
+    "An autonomous discovery and deterministic verification agent engineered for **The Venture Build (TVB)**. "
+    "Implements a **Two-Pass Discovery Engine**, **6 Independent Hard Gates**, and an **Adversarial Red-Team Verifier**."
 )
 
 with st.sidebar:
@@ -86,7 +85,7 @@ with st.sidebar:
         "SerpApi / Serper Key (Optional)",
         value=os.environ.get("SERPER_API_KEY") or os.environ.get("SERPAPI_API_KEY", ""),
         type="password",
-        help="Optional Google-backed search (supports SerpApi.com or Serper.dev). If omitted, uses free DuckDuckGo search automatically.",
+        help="Google-backed search for fresh press releases and funding news.",
     )
     if serper_key_input:
         os.environ["SERPER_API_KEY"] = serper_key_input
@@ -98,7 +97,7 @@ with st.sidebar:
         "Hunter.io API Key (Optional)",
         value=os.environ.get("HUNTER_API_KEY", ""),
         type="password",
-        help="Optional live B2B email finder & verification via Hunter.io API. If omitted, uses internal pattern matrix + DNS MX/SMTP verification.",
+        help="Live B2B email intelligence verification for primary executives.",
     )
     if hunter_key_input:
         os.environ["HUNTER_API_KEY"] = hunter_key_input
@@ -119,96 +118,122 @@ with st.sidebar:
         value=config.MAX_DOMAINS_TO_SCAN,
         step=10,
     )
-    max_queries = st.number_input(
-        "Max discovery queries",
-        min_value=5,
-        max_value=200,
-        value=config.MAX_SEARCH_QUERIES,
-        step=5,
-    )
 
-    run_clicked = st.button("🚀 Run Lead Discovery Agent", type="primary", use_container_width=True)
+    run_clicked = st.button("🚀 Run Autonomous Lead Agent", type="primary", use_container_width=True)
 
-if "leads" not in st.session_state:
-    st.session_state.leads = []
+if "qualified_leads" not in st.session_state:
+    st.session_state.qualified_leads = []
+if "rejected_leads" not in st.session_state:
+    st.session_state.rejected_leads = []
+if "funnel" not in st.session_state:
+    st.session_state.funnel = {
+        "discovered": 0,
+        "fin_pass": 0,
+        "tech_pass": 0,
+        "us_pass": 0,
+        "ceo_pass": 0,
+        "email_pass": 0,
+        "adversarial_pass": 0,
+        "qualified": 0,
+    }
 
 if run_clicked:
     active_prov = config.get_active_provider()
     if not active_prov:
-        st.error(
-            "⚠️ Please enter an API key in the sidebar (Gemini, Claude, or OpenAI) "
-            "so the agent can analyze scraped pages and extract structured parameters."
-        )
+        st.error("⚠️ Please enter an API key in the sidebar to start discovery.")
     else:
-        st.session_state.leads = []
-        progress_bar = st.progress(0, text="Initializing autonomous discovery...")
-        col_m1, col_m2, col_m3 = st.columns(3)
-        ph_scanned = col_m1.empty()
-        ph_leads = col_m2.empty()
-        ph_status = col_m3.empty()
+        st.session_state.qualified_leads = []
+        st.session_state.rejected_leads = []
+        progress_bar = st.progress(0, text="Initializing Two-Pass Discovery & Verification Engine...")
 
-        ph_scanned.metric("Domains Scanned", 0)
-        ph_leads.metric("Qualifying Leads Found", 0)
-        ph_status.metric("Discovery Status", "Active")
+        # Funnel Metrics Bar
+        col1, col2, col3, col4, col5 = st.columns(5)
+        m_disc = col1.metric("Candidates Scanned", 0)
+        m_fin = col2.metric("Financial Gate ($1M-$5M)", 0)
+        m_ceo = col3.metric("CEO Verified", 0)
+        m_email = col4.metric("Exact Email Verified", 0)
+        m_qual = col5.metric("FINAL QUALIFIED", 0)
 
-        log_expander = st.expander("📋 Live Agent Execution Log", expanded=True)
+        log_expander = st.expander("📋 Live Agent Execution & Audit Log", expanded=True)
         log_placeholder = log_expander.empty()
         log_lines = []
-        results_placeholder = st.empty()
 
         for event in pipeline.run(
             min_leads=int(min_leads),
             max_domains=int(max_domains),
-            max_queries=int(max_queries),
         ):
             etype = event["type"]
             if etype == "log":
                 log_lines.append(event["message"])
-                log_placeholder.code("\n".join(log_lines[-250:]), language=None)
+                log_placeholder.code("\n".join(log_lines[-300:]), language=None)
             elif etype == "progress":
                 scanned_count = event["scanned"]
                 total_target = max(1, event["total"])
                 pct = min(1.0, scanned_count / total_target)
-                progress_bar.progress(
-                    pct, text=f"Scanning & evaluating domains ({scanned_count}/{total_target})..."
-                )
-                ph_scanned.metric("Domains Scanned", scanned_count)
+                progress_bar.progress(pct, text=f"Scouting & 6-Gate Evaluating ({scanned_count}/{total_target})...")
+            elif etype == "funnel":
+                f = event["funnel"]
+                st.session_state.funnel = f
+                m_disc.metric("Candidates Scanned", f["discovered"])
+                m_fin.metric("Financial Gate ($1M-$5M)", f["fin_pass"])
+                m_ceo.metric("CEO Verified", f["ceo_pass"])
+                m_email.metric("Exact Email Verified", f["email_pass"])
+                m_qual.metric("FINAL QUALIFIED", f["qualified"])
             elif etype == "lead":
-                st.session_state.leads.append(event["record"])
-                ph_leads.metric("Qualifying Leads Found", len(st.session_state.leads))
-                df = pd.DataFrame(st.session_state.leads)
-                results_placeholder.dataframe(df, use_container_width=True)
+                st.session_state.qualified_leads.append(event["record"])
             elif etype == "done":
-                st.session_state.leads = event["leads"]
-                progress_bar.progress(1.0, text="Discovery run completed!")
-                ph_status.metric("Discovery Status", "Completed")
+                st.session_state.qualified_leads = event.get("leads", [])
+                st.session_state.rejected_leads = event.get("rejected_leads", [])
+                progress_bar.progress(1.0, text="Discovery & Verification Completed!")
 
-        st.success(f"🎉 Run complete — Found {len(st.session_state.leads)} fully qualified leads matching TVB's profile!")
+        st.success(f"🎉 Verification Complete — Found {len(st.session_state.qualified_leads)} proven leads meeting 100% of TVB rules!")
 
-if st.session_state.leads:
-    st.subheader(f"📊 Qualifying Scale-Up Leads ({len(st.session_state.leads)})")
-    df = pd.DataFrame(st.session_state.leads)
-    st.dataframe(df, use_container_width=True)
-    st.download_button(
-        "⬇️ Download Leads as CSV",
-        data=df.to_csv(index=False).encode("utf-8"),
-        file_name="tvb_qualifying_leads.csv",
-        mime="text/csv",
-    )
-else:
-    st.info("👈 Enter your API key in the sidebar and click **🚀 Run Lead Discovery Agent** to start.")
+# ---------------------------------------------------------------------------
+# Results Display & Export
+# ---------------------------------------------------------------------------
+tab_qual, tab_rej, tab_arch = st.tabs([
+    f"🏆 Proven Qualified Leads ({len(st.session_state.qualified_leads)})",
+    f"❌ Rejected Candidates Audit ({len(st.session_state.rejected_leads)})",
+    "🛡️ 6-Gate Architecture & Rules",
+])
 
-with st.expander("ℹ️ How the Agent Discovers & Validates Leads"):
+with tab_qual:
+    if st.session_state.qualified_leads:
+        df_qual = pd.DataFrame(st.session_state.qualified_leads)
+        st.dataframe(df_qual, use_container_width=True)
+        st.download_button(
+            "⬇️ Download qualified_leads.csv (100% Verified)",
+            data=df_qual.to_csv(index=False).encode("utf-8"),
+            file_name="qualified_leads.csv",
+            mime="text/csv",
+            type="primary",
+        )
+    else:
+        st.info("No qualified leads generated yet. Run the agent using the sidebar.")
+
+with tab_rej:
+    if st.session_state.rejected_leads:
+        df_rej = pd.DataFrame(st.session_state.rejected_leads)
+        st.dataframe(df_rej, use_container_width=True)
+        st.download_button(
+            "⬇️ Download rejected_leads.csv (Audit Log)",
+            data=df_rej.to_csv(index=False).encode("utf-8"),
+            file_name="rejected_leads.csv",
+            mime="text/csv",
+        )
+    else:
+        st.caption("No rejected candidate records logged.")
+
+with tab_arch:
     st.markdown(
         """
-1. **Dynamic Multi-Vector Discovery** — Combines TVB's Orbit verticals (Healthcare, EdTech, Applied AI, Cybersecurity, Digital Twin, Fintech, Travel) with non-US hubs (India, UK, France/Europe, UAE/Middle East, SEA, LATAM, etc.) and funding phrases, plus LLM-brainstormed search queries.
-2. **Autonomous Web Scraping** — Visits discovered candidate websites and explores relevant subpages (`/about`, `/team`, `/leadership`, `/contact`, `/company`).
-3. **Structured Entity Extraction** — Uses LLMs with strict zero-hallucination rules to parse revenue/funding figures, tech platform status, headquarters/geography, and named leadership.
-4. **Multi-Constraint Profile Validation**:
-   - **$1M–$5M USD** revenue or funding raised
-   - **Tech-enabled platform**
-   - **Minimal-to-no US presence**
-   - **Named CEO/Co-founder** with **verified email** (validated via live DNS MX checks)
+### 🛡️ TVB Deterministic 6-Gate Verification Rules
+1. **Gate 1: Company Existence** — Verified root corporate domain with live DNS and active service.
+2. **Gate 2: Financial Requirement** — Strictly between **$1M and $5M USD** current revenue or total funding raised. Outdated or late-stage rounds (> $5M) are deterministically rejected.
+3. **Gate 3: Technology Platform** — Primary source clearly describes a proprietary tech/SaaS software platform.
+4. **Gate 4: Minimal US Presence** — Verified non-US headquarters (Europe, UK, India, UAE, Singapore, etc.). Rejects Delaware shells and US operating entities.
+5. **Gate 5: Primary Leadership** — Current primary Founder / CEO verified on official leadership pages.
+6. **Gate 6: Exact Email Verification** — **STRICT NO-INFERENCE POLICY**: Never generates or hallucinates emails. Accepts only exact published corporate emails or high-confidence Hunter.io API verification ($\ge 70$).
+7. **Adversarial Red-Team Audit** — Dedicated adversarial verification pass designed to catch late-stage funding, executive departures, or US flips.
         """
     )
-
