@@ -30,8 +30,8 @@ def _scout_ai_batch(target_count: int = 6, sector_hint: str = "", region_hint: s
 
     prompt = (
         f"You are the autonomous Venture Lead Scout for The Venture Build (TVB).\n"
-        f"Discover {target_count} REAL, verified non-US tech platform startups matching ALL 4 TVB criteria:\n"
-        f"1. Funding/Revenue: strictly between $1 Million and $5 Million USD (Seed / Pre-Series A / Series A / ARR).\n"
+        f"Discover {target_count} REAL, active non-US tech platform startups matching ALL 4 TVB criteria:\n"
+        f"1. Recent Funding/Revenue: strictly between $1 Million and $5 Million USD (focus on recent 2024–2026 Seed / Pre-Series A / Series A or current ARR).\n"
         f"2. Sector: Focus on {', '.join(sectors)}.\n"
         f"3. Geography: Headquartered in non-US countries like {', '.join(regions)} (India, UK, France, Germany, Singapore, UAE, etc.) with minimal-to-no presence in the US.\n"
         f"4. Leadership: Real named CEO or Co-founder, valid company domain, and realistic executive email address on their domain.\n\n"

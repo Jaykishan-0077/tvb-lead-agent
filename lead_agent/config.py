@@ -62,17 +62,16 @@ REGIONS = [
 ]
 
 FUNDING_SIGNAL_PHRASES = [
-    "raised seed funding",
-    "raised $1 million",
-    "raised $2 million",
-    "raised $3 million",
-    "raised $4 million",
-    "raised $5 million",
-    "seed round",
-    "pre-series A funding",
-    "series A funding platform",
-    "annual recurring revenue $2 million",
-    "ARR $3 million platform",
+    "recently raised seed funding",
+    "raised $1 million 2025 2026",
+    "raised $2 million seed round",
+    "raised $3 million pre-series A",
+    "raised $4 million 2025",
+    "announced $2.5 million seed round",
+    "secured $3 million funding 2025 2026",
+    "current ARR $2 million platform",
+    "annual recurring revenue $3 million",
+    "closed $4 million seed funding",
 ]
 
 # ---------------------------------------------------------------------------
