@@ -51,9 +51,10 @@ with st.sidebar:
     )
 
     if "Gemini" in provider:
+        gemini_default = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or getattr(config, "get_gemini_api_key", lambda: "")()
         gemini_key_input = st.text_input(
             "Gemini API Key",
-            value=config.get_gemini_api_key(),
+            value=gemini_default,
             type="password",
             help="Google Gemini AI Key",
         )
@@ -61,18 +62,20 @@ with st.sidebar:
             os.environ["GEMINI_API_KEY"] = gemini_key_input
             os.environ["GOOGLE_API_KEY"] = gemini_key_input
     elif "Anthropic" in provider:
+        anthropic_default = os.environ.get("ANTHROPIC_API_KEY") or getattr(config, "get_anthropic_api_key", lambda: "")()
         anthropic_key_input = st.text_input(
             "Anthropic API Key",
-            value=config.get_anthropic_api_key(),
+            value=anthropic_default,
             type="password",
             help="Available from https://console.anthropic.com/",
         )
         if anthropic_key_input:
             os.environ["ANTHROPIC_API_KEY"] = anthropic_key_input
     else:
+        openai_default = os.environ.get("OPENAI_API_KEY") or getattr(config, "get_openai_api_key", lambda: "")()
         openai_key_input = st.text_input(
             "OpenAI API Key",
-            value=config.get_openai_api_key(),
+            value=openai_default,
             type="password",
             help="Available from https://platform.openai.com/",
         )
@@ -81,9 +84,10 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("🔍 Search Provider")
+    serpapi_default = os.environ.get("SERPAPI_API_KEY") or os.environ.get("SERPER_API_KEY") or getattr(config, "get_serpapi_api_key", lambda: "")()
     serper_key_input = st.text_input(
         "SerpApi Key",
-        value=config.get_serpapi_api_key(),
+        value=serpapi_default,
         type="password",
         help="Google-backed search for fresh press releases and funding news.",
     )
@@ -93,9 +97,10 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("📧 Email Verification")
+    hunter_default = os.environ.get("HUNTER_API_KEY") or getattr(config, "get_hunter_api_key", lambda: "")()
     hunter_key_input = st.text_input(
         "Hunter.io API Key",
-        value=config.get_hunter_api_key(),
+        value=hunter_default,
         type="password",
         help="Live B2B email intelligence verification for primary executives.",
     )
