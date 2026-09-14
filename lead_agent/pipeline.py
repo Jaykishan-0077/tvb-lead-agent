@@ -30,6 +30,13 @@ AGGREGATOR_DOMAINS = {
     "inc42.com", "businessinsider.com", "businessinsider.in", "forbes.com",
     "fortune.com", "techcrunch.com", "venturebeat.com", "the-next-web.com",
     "thenextweb.com", "wired.com", "techradar.com", "zdnet.com",
+    "startus-insights.com", "ellty.com", "softwaresuggest.com", "techcollectivesea.com",
+    "startupfundraising.com", "shizune.co", "saastartups.org", "bonfirevc.com",
+    "revli.com", "fundedstartupsdaily.com", "projectstartups.com", "frenchtechjournal.com",
+    "vcsheet.com", "developmentcorporate.com", "dealmakerssouthafrica.com",
+    "siliconcanals.com", "tech.eu", "failory.com", "launchbaseafrica.com",
+    "dxbstart.com", "uaepreferred.com", "zepnew.com", "weetracker.com",
+    "vcbacked.co", "newmarketpitch.com", "euacc.ai", "marketingreport.one",
     # VC/investor platforms
     "crunchbase.com", "pitchbook.com", "dealroom.co", "angellist.com",
     "seedtable.com", "signal.nfx.com", "tracxn.com", "cb-insights.com",
@@ -210,12 +217,13 @@ def run(
                 if official_url:
                     off_dom = scraper.domain_of(official_url)
                     yield {"type": "log", "message": f"     🌐 Discovered Official Website: {official_url} ({off_dom})"}
+                    extracted_record["financial_source_1"] = url  # preserve news article as financial citation
+                    extracted_record["source_url"] = official_url
+                    extracted_record["active_source"] = official_url
+                    domain = off_dom
                     official_text = scraper.gather_site_text(official_url)
-                    if official_text and len(official_text.strip()) >= 100:
-                        page_text = official_text
-                        extracted_record["financial_source_1"] = url  # preserve news article as financial citation
-                        extracted_record["source_url"] = official_url
-                        domain = off_dom
+                    if official_text:
+                        page_text = official_text + " " + page_text
 
             yield {"type": "log", "message": f"  -> 6-Gate Audit: {c_name} (HQ: {hq})"}
 
