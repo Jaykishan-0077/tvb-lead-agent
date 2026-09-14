@@ -152,15 +152,54 @@ GEMINI_MODEL = os.environ.get("TVB_GEMINI_MODEL", "gemini-3.5-flash-lite")
 OPENAI_MODEL = os.environ.get("TVB_OPENAI_MODEL", "gpt-4o-mini")
 
 
+def _load_env_fallback():
+    # Auto-load .env file if present
+    env_paths = [
+        os.path.join(os.path.dirname(__file__), "..", ".env"),
+        os.path.join(os.getcwd(), ".env"),
+        os.path.join(os.getcwd(), ".streamlit", "secrets.toml"),
+    ]
+    for ep in env_paths:
+        if os.path.exists(ep):
+            try:
+                with open(ep, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip().strip('"').strip("'")
+                            v = v.strip().strip('"').strip("'")
+                            if k not in os.environ:
+                                os.environ[k] = v
+            except Exception:
+                pass
+
+
+_load_env_fallback()
+
+
 def get_anthropic_api_key() -> str:
+    _load_env_fallback()
     return os.environ.get("ANTHROPIC_API_KEY", "")
 
 
 def get_gemini_api_key() -> str:
+    _load_env_fallback()
     return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
 
 
+def get_serpapi_api_key() -> str:
+    _load_env_fallback()
+    return os.environ.get("SERPAPI_API_KEY") or os.environ.get("SERPER_API_KEY", "")
+
+
+def get_hunter_api_key() -> str:
+    _load_env_fallback()
+    return os.environ.get("HUNTER_API_KEY", "")
+
+
 def get_openai_api_key() -> str:
+    _load_env_fallback()
     return os.environ.get("OPENAI_API_KEY", "")
 
 
@@ -171,4 +210,4 @@ def get_active_provider() -> str:
         return "anthropic"
     if get_openai_api_key():
         return "openai"
-    return ""
+    return "gemini"

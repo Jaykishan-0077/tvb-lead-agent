@@ -25,7 +25,7 @@ except ImportError:
 
 
 def _search_serpapi(query: str, num: int) -> List[Dict]:
-    api_key = os.environ.get("SERPAPI_API_KEY") or os.environ.get("SERPER_API_KEY", "")
+    api_key = config.get_serpapi_api_key()
     if not api_key:
         return []
     try:

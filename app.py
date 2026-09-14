@@ -53,9 +53,9 @@ with st.sidebar:
     if "Gemini" in provider:
         gemini_key_input = st.text_input(
             "Gemini API Key",
-            value=os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", ""),
+            value=config.get_gemini_api_key(),
             type="password",
-            help="Free key available from https://aistudio.google.com/",
+            help="Google Gemini AI Key",
         )
         if gemini_key_input:
             os.environ["GEMINI_API_KEY"] = gemini_key_input
@@ -63,7 +63,7 @@ with st.sidebar:
     elif "Anthropic" in provider:
         anthropic_key_input = st.text_input(
             "Anthropic API Key",
-            value=os.environ.get("ANTHROPIC_API_KEY", ""),
+            value=config.get_anthropic_api_key(),
             type="password",
             help="Available from https://console.anthropic.com/",
         )
@@ -72,7 +72,7 @@ with st.sidebar:
     else:
         openai_key_input = st.text_input(
             "OpenAI API Key",
-            value=os.environ.get("OPENAI_API_KEY", ""),
+            value=config.get_openai_api_key(),
             type="password",
             help="Available from https://platform.openai.com/",
         )
@@ -82,8 +82,8 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🔍 Search Provider")
     serper_key_input = st.text_input(
-        "SerpApi / Serper Key (Optional)",
-        value=os.environ.get("SERPER_API_KEY") or os.environ.get("SERPAPI_API_KEY", ""),
+        "SerpApi Key",
+        value=config.get_serpapi_api_key(),
         type="password",
         help="Google-backed search for fresh press releases and funding news.",
     )
@@ -94,8 +94,8 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("📧 Email Verification")
     hunter_key_input = st.text_input(
-        "Hunter.io API Key (Optional)",
-        value=os.environ.get("HUNTER_API_KEY", ""),
+        "Hunter.io API Key",
+        value=config.get_hunter_api_key(),
         type="password",
         help="Live B2B email intelligence verification for primary executives.",
     )

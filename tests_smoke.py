@@ -75,7 +75,7 @@ def test_adversarial_break_testing():
         "current_total_funding_usd": "$18,000,000",
         "hq_country": "Germany",
     }
-    passed, reason = adversarial.verify_adversarial(bad_record)
+    passed, reason, exp = adversarial.verify_adversarial(bad_record)
     assert not passed
     assert reason in ("TOTAL_FUNDING_ABOVE_LIMIT", "FUNDING_ABOVE_LIMIT")
 
@@ -85,7 +85,7 @@ def test_adversarial_break_testing():
         "financial_amount_usd": "$3,000,000",
         "hq_country": "Delaware, USA",
     }
-    passed, reason = adversarial.verify_adversarial(us_record)
+    passed, reason, exp = adversarial.verify_adversarial(us_record)
     assert not passed
     assert reason == "US_PRESENCE_TOO_HIGH"
 
