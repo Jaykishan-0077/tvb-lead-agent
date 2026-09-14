@@ -179,7 +179,7 @@ if run_clicked:
                 f = event["funnel"]
                 st.session_state.funnel = f
                 m_disc.metric("Candidates Scanned", f["discovered"])
-                m_fin.metric("Financial Gate ($1M-$5M)", f["fin_pass"])
+                m_fin.metric("Financial Gate ($1M-$10M)", f["fin_pass"])
                 m_ceo.metric("CEO Verified", f["ceo_pass"])
                 m_email.metric("Exact Email Verified", f["email_pass"])
                 m_qual.metric("FINAL QUALIFIED", f["qualified"])
@@ -203,7 +203,22 @@ tab_qual, tab_rej, tab_arch = st.tabs([
 
 with tab_qual:
     if st.session_state.qualified_leads:
-        df_qual = pd.DataFrame(st.session_state.qualified_leads)
+        rows = []
+        for l in st.session_state.qualified_leads:
+            rows.append({
+                "company_name": l.get("company_name") or "",
+                "description": l.get("description") or "",
+                "website": l.get("website") or l.get("source_url") or "",
+                "industry_sector": l.get("industry_sector") or "",
+                "hq_country": l.get("hq_country") or "",
+                "financial_type": l.get("financial_type") or "",
+                "financial_amount_usd": l.get("financial_amount_usd") or "",
+                "financial_date": l.get("financial_date") or "",
+                "current_revenue_usd": l.get("current_revenue_usd") or "",
+                "ceo_name": l.get("ceo_name") or l.get("contact_name") or "",
+                "ceo_email": l.get("ceo_email") or l.get("email") or "",
+            })
+        df_qual = pd.DataFrame(rows).fillna("")
         st.dataframe(df_qual, use_container_width=True)
         st.download_button(
             "⬇️ Download qualified_leads.csv (100% Verified)",
@@ -233,11 +248,11 @@ with tab_arch:
         """
 ### 🛡️ TVB Deterministic 6-Gate Verification Rules
 1. **Gate 1: Company Existence** — Verified root corporate domain with live DNS and active service.
-2. **Gate 2: Financial Requirement** — Strictly between **$1M and $5M USD** current revenue or total funding raised. Outdated or late-stage rounds (> $5M) are deterministically rejected.
+2. **Gate 2: Financial Requirement** — Strictly between **$1M and $10M USD** current revenue or total funding raised. Outdated or late-stage rounds (> $10M) are deterministically rejected.
 3. **Gate 3: Technology Platform** — Primary source clearly describes a proprietary tech/SaaS software platform.
 4. **Gate 4: Minimal US Presence** — Verified non-US headquarters (Europe, UK, India, UAE, Singapore, etc.). Rejects Delaware shells and US operating entities.
 5. **Gate 5: Primary Leadership** — Current primary Founder / CEO verified on official leadership pages.
-6. **Gate 6: Exact Email Verification** — **STRICT NO-INFERENCE POLICY**: Never generates or hallucinates emails. Accepts only exact published corporate emails or high-confidence Hunter.io API verification ($\ge 70$).
+6. **Gate 6: Contact Email** — Verified executive email when discoverable; if unlisted, left blank while qualifying the verified company.
 7. **Adversarial Red-Team Audit** — Dedicated adversarial verification pass designed to catch late-stage funding, executive departures, or US flips.
         """
     )

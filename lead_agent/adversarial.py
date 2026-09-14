@@ -24,15 +24,14 @@ def _check_disqualifying_snippets(company_name: str, search_results: List[Dict])
         url = r.get("url", "")
         combined = f"{title} {snippet}"
 
-        # 1. Total Funding / Subsequent Round Check (> $5M)
+        # 1. Total Funding / Subsequent Round Check (> $10M)
         overfunding_patterns = [
-            r"\$(?:[6-9]|\d{2,})\s*(?:million|m|mn|b|billion)",
-            r"€(?:[6-9]|\d{2,})\s*(?:million|m|mn|b|billion)",
-            r"£(?:[6-9]|\d{2,})\s*(?:million|m|mn|b|billion)",
-            r"series\s+[b-f]",
-            r"series\s+c",
-            r"raised\s+\$[0-9]{2,}\s*m",
-            r"total\s+funding.*?\$[0-9]{2,}\s*m",
+            r"\$(?:1[1-9]|[2-9]\d|\d{3,})\s*(?:million|m|mn|b|billion)",
+            r"€(?:1[1-9]|[2-9]\d|\d{3,})\s*(?:million|m|mn|b|billion)",
+            r"£(?:1[1-9]|[2-9]\d|\d{3,})\s*(?:million|m|mn|b|billion)",
+            r"series\s+[c-f]",
+            r"raised\s+\$(?:1[1-9]|[2-9]\d|\d{3,})\s*m",
+            r"total\s+funding.*?\$(?:1[1-9]|[2-9]\d|\d{3,})\s*m",
         ]
         for pat in overfunding_patterns:
             if re.search(pat, combined):
@@ -86,7 +85,7 @@ def verify_adversarial(record: Dict) -> Tuple[bool, str, str]:
     try:
         val = float(re.sub(r"[^\d.]", "", amt_str) or 0)
         if val > config.TARGET_PROFILE["revenue_or_funding_usd_max"]:
-            return (False, "TOTAL_FUNDING_ABOVE_LIMIT", f"Claimed funding ${int(val):,} exceeds $5M ceiling")
+            return (False, "TOTAL_FUNDING_ABOVE_LIMIT", f"Claimed funding ${int(val):,} exceeds $10M ceiling")
         if val < config.TARGET_PROFILE["revenue_or_funding_usd_min"] and val > 0:
             return (False, "FUNDING_BELOW_LIMIT", f"Claimed funding ${int(val):,} is below $1M threshold")
     except Exception:

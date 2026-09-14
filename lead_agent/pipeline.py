@@ -251,7 +251,7 @@ def run(
                         "type": "log",
                         "message": (
                             f"     ✅ QUALIFIED #{len(qualified_leads)}: {qual['company_name']} "
-                            f"({qual['financial_amount_usd']} | {qual['contact_name']} <{qual['email']}>)"
+                            f"({qual['financial_amount_usd']} | {qual.get('contact_name', '')} <{qual.get('email') or 'email: unlisted'}>)"
                         ),
                     }
                 else:

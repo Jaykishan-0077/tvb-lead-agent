@@ -501,22 +501,30 @@ def evaluate_record(record: Dict, page_text: str = "") -> Tuple[Optional[Dict], 
                     person_attributed = True
                     confidence = 87
 
-    # HARD RULE: If no exact verified email with person attribution exists, FAIL Gate 6
-    if not verified_email or not person_attributed:
-        base_audit["rejection_reason"] = "EMAIL_NOT_VERIFIED"
-        base_audit["email_evidence"] = "No verbatim email in scraped page text, no Hunter.io score >= 70, and no verified corporate MX mail exchanger found."
-        return (None, base_audit)
+    # User liberty rule: If no email found, keep blank space and include company in qualified list
+    if not verified_email:
+        verified_email = ""
+        email_status = "unverified_blank"
+        email_source = ""
+        email_evidence = "Email not publicly found; left blank as permitted."
+        person_attributed = False
+        confidence = 80
 
     # ----------------------------------------------------
-    # ALL 6 GATES PASSED!
+    # ALL GATES PASSED!
     # ----------------------------------------------------
     base_audit["email"] = verified_email
     base_audit["email_source"] = email_source
     base_audit["email_evidence"] = email_evidence
     base_audit["email_verification_status"] = email_status
-    base_audit["email_person_attributed"] = True
+    base_audit["email_person_attributed"] = person_attributed
     base_audit["qualification_status"] = "QUALIFIED"
     base_audit["rejection_reason"] = "NONE"
     base_audit["confidence_score"] = f"{confidence}%"
+
+    # Export convenience fields requested by user
+    base_audit["website"] = source_url
+    base_audit["ceo_name"] = contact_name
+    base_audit["ceo_email"] = verified_email
 
     return (base_audit, None)

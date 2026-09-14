@@ -31,40 +31,50 @@ def test_six_gate_evaluation():
     assert qual["email_person_attributed"] is True
     assert qual["financial_date"] == "2024-05-18"
 
-    # 2. Gate 2 Failure: Over $5M total funding cap (Omni / Dust / Koywe style)
+    # 2. Gate 2: $8M funding should pass under new $1M-$10M rule
+    eight_mil_input = dict(qualifying_input, current_total_funding_usd="8000000", funding_or_revenue_usd_estimate="8000000")
+    qual_8m, rej_8m = validator.evaluate_record(eight_mil_input)
+    assert qual_8m is not None, "Funding up to $10M should pass Gate 2"
+    assert qual_8m["financial_amount_usd"] == "$8,000,000"
+
+    # 3. Gate 2 Failure: Over $10M total funding cap (Omni / Dust style)
     overfunded_input = dict(qualifying_input, current_total_funding_usd="15000000", funding_or_revenue_usd_estimate="15000000")
     qual, rej = validator.evaluate_record(overfunded_input)
     assert qual is None
     assert rej is not None
     assert rej["rejection_reason"] in ("TOTAL_FUNDING_ABOVE_LIMIT", "FUNDING_ABOVE_LIMIT")
 
-    # 3. Gate 2 Failure: Under $1M minimum funding (Sanctifly / Fyorin style)
+    # 4. Gate 2 Failure: Under $1M minimum funding (Sanctifly / Fyorin style)
     underfunded_input = dict(qualifying_input, current_total_funding_usd="460000", funding_or_revenue_usd_estimate="460000")
     qual, rej = validator.evaluate_record(underfunded_input)
     assert qual is None
     assert rej is not None
     assert rej["rejection_reason"] == "FUNDING_BELOW_LIMIT"
 
-    # 4. Gate 1 Failure: Acquired company (Langfuse / ClickHouse style)
+    # 5. Gate 1 Failure: Acquired company (Langfuse / ClickHouse style)
     acquired_input = dict(qualifying_input, company_status="acquired")
     qual, rej = validator.evaluate_record(acquired_input)
     assert qual is None
     assert rej is not None
     assert rej["rejection_reason"] == "COMPANY_ACQUIRED_OR_CLOSED"
 
-    # 5. Gate 4 Failure: US Presence (Kombai / San Francisco style)
+    # 6. Gate 4 Failure: US Presence (Kombai / San Francisco style)
     us_input = dict(qualifying_input, hq_country="United States")
     qual, rej = validator.evaluate_record(us_input)
     assert qual is None
     assert rej is not None
     assert rej["rejection_reason"] in ("US_PRESENCE_TOO_HIGH", "US_PRESENCE_UNKNOWN")
 
-    # 6. Gate 6 Failure: Missing or Generic Email (Zero Guessing Policy)
+    # 7. Gate 6 Liberty Rule: If email cannot be found, qualify company with blank email
     no_email_input = dict(qualifying_input, contact_email="", email="", allow_mx_pattern=False)
     qual, rej = validator.evaluate_record(no_email_input)
-    assert qual is None
-    assert rej is not None
-    assert rej["rejection_reason"] == "EMAIL_NOT_VERIFIED"
+    assert qual is not None, "Lead should qualify even if email is missing"
+    assert rej is None
+    assert qual["qualification_status"] == "QUALIFIED"
+    assert qual["email"] == ""  # blank space
+    assert qual["website"] == "https://google.com"
+    assert qual["ceo_name"] == "Jean Dupont"
+    assert qual["ceo_email"] == ""
 
 
 def test_adversarial_break_testing():

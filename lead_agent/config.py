@@ -17,17 +17,17 @@ import os
 # ---------------------------------------------------------------------------
 TARGET_PROFILE = {
     "revenue_or_funding_usd_min": 1_000_000,
-    "revenue_or_funding_usd_max": 5_000_000,
+    "revenue_or_funding_usd_max": 10_000_000,
     "requires_tech_platform": True,
     "requires_minimal_us_presence": True,
     "requires_named_contact": True,  # Primary CEO or Co-founder
-    "requires_verified_email": True,
+    "requires_verified_email": False,  # If email not found, keep blank space and qualify
 }
 
 # Machine-Readable Hard Rejection Codes
 REJECTION_REASONS = {
-    "TOTAL_FUNDING_ABOVE_LIMIT": "Current total funding exceeds $5M USD ceiling.",
-    "FUNDING_ABOVE_LIMIT": "Total funding or revenue exceeds $5M USD cap.",
+    "TOTAL_FUNDING_ABOVE_LIMIT": "Current total funding exceeds $10M USD ceiling.",
+    "FUNDING_ABOVE_LIMIT": "Total funding or revenue exceeds $10M USD cap.",
     "FUNDING_BELOW_LIMIT": "Total funding or revenue is below the minimum $1M USD threshold.",
     "REVENUE_NOT_VERIFIED": "No verified primary or secondary financial evidence found.",
     "OUTDATED_FINANCIAL_DATA": "Financial figures are outdated or reference stale predecessor rounds without total funding verification.",
@@ -42,8 +42,23 @@ REJECTION_REASONS = {
     "TECH_PLATFORM_NOT_VERIFIED": "Company does not operate a proprietary tech platform or SaaS product.",
     "CONFLICTING_SOURCES": "Conflicting data points between primary site and secondary registries.",
     "INSUFFICIENT_EVIDENCE": "Record lacks sufficient multi-source corroboration.",
-    "ADVERSARIAL_FAILURE": "Adversarial audit identified disqualifying round >$5M, acquisition, or US entity.",
+    "ADVERSARIAL_FAILURE": "Adversarial audit identified disqualifying round >$10M, acquisition, or US entity.",
 }
+
+# Simplified Export Columns for Proven Qualified Leads requested by user
+QUALIFIED_EXPORT_COLUMNS = [
+    "company_name",
+    "description",
+    "website",
+    "industry_sector",
+    "hq_country",
+    "financial_type",
+    "financial_amount_usd",
+    "financial_date",
+    "current_revenue_usd",
+    "ceo_name",
+    "ceo_email",
+]
 
 # Full Audit Trail Schema Columns for TVB Export
 AUDIT_EXPORT_COLUMNS = [
@@ -129,8 +144,12 @@ FUNDING_SIGNAL_PHRASES = [
     "raised $4 million 2025",
     "announced $2.5 million seed round",
     "secured $3 million funding 2025 2026",
+    "raised $5 million seed funding",
+    "closed $6 million funding round",
+    "raised $8 million Series A",
+    "raised $10 million funding round",
     "current ARR $2 million platform",
-    "annual recurring revenue $3 million",
+    "annual recurring revenue $5 million",
     "closed $4 million seed funding",
 ]
 
