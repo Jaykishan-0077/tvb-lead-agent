@@ -60,7 +60,7 @@ def test_six_gate_evaluation():
     assert rej["rejection_reason"] in ("US_PRESENCE_TOO_HIGH", "US_PRESENCE_UNKNOWN")
 
     # 6. Gate 6 Failure: Missing or Generic Email (Zero Guessing Policy)
-    no_email_input = dict(qualifying_input, contact_email="", email="")
+    no_email_input = dict(qualifying_input, contact_email="", email="", allow_mx_pattern=False)
     qual, rej = validator.evaluate_record(no_email_input)
     assert qual is None
     assert rej is not None

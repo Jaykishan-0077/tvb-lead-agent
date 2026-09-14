@@ -55,7 +55,52 @@ def _is_aggregator(url: str) -> bool:
                 return True
     except Exception:
         pass
-    return False
+import re
+import requests
+
+
+def resolve_company_official_website(company_name: str, country: str = "") -> str:
+    """Discovers the real corporate website for a startup identified via news or press releases."""
+    api_key = config.get_tavily_api_key()
+    if not api_key or not company_name:
+        return ""
+    q = f'"{company_name}" {country} startup official website homepage'
+    try:
+        resp = requests.post(
+            "https://api.tavily.com/search",
+            headers={"Content-Type": "application/json"},
+            json={"api_key": api_key, "query": q, "max_results": 6, "include_answer": True},
+            timeout=config.REQUEST_TIMEOUT_SECS,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            # 1. Check Tavily Direct Answer
+            ans = data.get("answer", "")
+            if ans:
+                for match in re.finditer(r"https?://([A-Za-z0-9.-]+\.[A-Za-z]{2,})(?:/[^\s,]*)?", ans):
+                    dom = match.group(1).lower().replace("www.", "")
+                    if not any(ex in dom for ex in AGGREGATOR_DOMAINS):
+                        return f"https://{dom}"
+
+            # 2. Check Results for company name match
+            c_clean = "".join(ch for ch in company_name.lower() if ch.isalnum())
+            for item in data.get("results", []):
+                u = item.get("url", "")
+                dom = u.split("//")[-1].split("/")[0].lower().replace("www.", "")
+                if any(ex in dom for ex in AGGREGATOR_DOMAINS):
+                    continue
+                if c_clean in dom.replace("-", "") or dom.split(".")[0] in c_clean:
+                    return f"https://{dom}"
+
+            # 3. Fallback: First clean domain in search results
+            for item in data.get("results", []):
+                u = item.get("url", "")
+                dom = u.split("//")[-1].split("/")[0].lower().replace("www.", "")
+                if not any(ex in dom for ex in AGGREGATOR_DOMAINS):
+                    return f"https://{dom}"
+    except Exception:
+        pass
+    return ""
 
 
 def run(
@@ -155,6 +200,23 @@ def run(
 
             c_name = extracted_record.get("company_name") or domain
             hq = extracted_record.get("hq_country") or "Unknown"
+
+            # Check if this URL was a press release / news article rather than the company official website
+            c_clean = "".join(ch for ch in c_name.lower() if ch.isalnum())
+            cur_dom = domain.lower().replace("www.", "")
+            if c_clean and c_clean not in cur_dom and cur_dom.split(".")[0] not in c_clean:
+                yield {"type": "log", "message": f"  🔎 Press/News coverage detected for '{c_name}'. Resolving official website..."}
+                official_url = resolve_company_official_website(c_name, hq)
+                if official_url:
+                    off_dom = scraper.domain_of(official_url)
+                    yield {"type": "log", "message": f"     🌐 Discovered Official Website: {official_url} ({off_dom})"}
+                    official_text = scraper.gather_site_text(official_url)
+                    if official_text and len(official_text.strip()) >= 100:
+                        page_text = official_text
+                        extracted_record["financial_source_1"] = url  # preserve news article as financial citation
+                        extracted_record["source_url"] = official_url
+                        domain = off_dom
+
             yield {"type": "log", "message": f"  -> 6-Gate Audit: {c_name} (HQ: {hq})"}
 
             # Evaluate 6 Hard Gates with live scraped page text
