@@ -1,12 +1,12 @@
 """
-Builds the set of search queries the agent will use to *discover* candidate
-companies on its own.
+Builds high-intent, targeted search queries to discover non-US tech startups
+with $1M–$10M in total funding or current revenue.
 
 Strategy:
-  - Combinatorial queries targeting COMPANY OFFICIAL SITES ("about" / "team" / "contact" pages).
-  - Negative vectors strip aggregators, directories, news sites.
-  - LLM brainstorming adds diverse region × sector coverage.
-  - NO directory-style queries ("list of top X") — these land on aggregator sites, not company pages.
+  1. Concrete Funding News & Press Queries (action verbs + exact dollar amounts $1M–$10M).
+  2. Direct Tech TLD Targeting (site:.ai, site:.io, site:.co, site:.app) landing on official sites.
+  3. Regional Early-Stage Lead Investor & Accelerator Announcements.
+  4. LLM-Brainstormed High-Intent Scouting Queries.
 """
 
 import random
@@ -19,59 +19,111 @@ try:
 except ImportError:
     anthropic = None
 
-# Phase 1 negative search vectors — block aggregator/US-flip noise
-NEGATIVE_VECTORS = (
-    '-site:crunchbase.com -site:linkedin.com -site:techcrunch.com '
-    '-site:eu-startups.com -site:vestbee.com -site:growthlist.co '
-    '-site:f6s.com -site:dealroom.co -site:medium.com '
-    '-"Inc" -"Delaware" -"USA" -"United States"'
-)
+# Negative vectors: block US entities and Delaware corporate shells
+NEGATIVE_VECTORS = '-"Delaware" -"Inc" -"United States" -"San Francisco"'
+
+REGIONS = [
+    ("UK", "GBP"),
+    ("Germany", "EUR"),
+    ("France", "EUR"),
+    ("Netherlands", "EUR"),
+    ("Sweden", "EUR"),
+    ("Spain", "EUR"),
+    ("India", "USD"),
+    ("Singapore", "USD"),
+    ("UAE", "USD"),
+    ("Saudi Arabia", "USD"),
+    ("Kenya", "USD"),
+    ("Nigeria", "USD"),
+    ("Egypt", "USD"),
+    ("South Africa", "USD"),
+    ("Brazil", "USD"),
+    ("Mexico", "USD"),
+    ("Australia", "USD"),
+]
+
+SECTORS = [
+    "fintech",
+    "B2B SaaS",
+    "AI platform",
+    "healthtech",
+    "insurtech",
+    "supply chain tech",
+    "edtech",
+    "climate tech",
+    "cybersecurity",
+    "digital twin",
+    "workforce tech",
+    "logistics tech",
+    "proptech",
+    "embedded finance",
+    "enterprise AI",
+]
+
+VERBS = ["raised", "secures", "closes", "bags", "announces"]
+ROUNDS = ['"seed round"', '"seed funding"', '"pre-series A"', '"Series A"']
 
 
-def _combinatorial_queries(n: int) -> List[str]:
-    """
-    Produce queries that land on company home/about/team pages.
-    Example: 'fintech startup India "raised" "$2 million" site:.io OR site:.co OR site:.com/about'
-    """
+def _funding_announcements_queries(n: int) -> List[str]:
+    """Generates high-intent queries that match real funding news and press releases."""
     queries = []
-    page_targets = [
-        'inurl:about',
-        'inurl:team',
-        'inurl:leadership',
-        '"our team" OR "about us" CEO founder',
-        '"seed round" OR "pre-series A" founder CEO',
-    ]
-    for sector in config.SECTORS:
-        for region in config.REGIONS:
-            phrase = random.choice(config.FUNDING_SIGNAL_PHRASES)
-            page_hint = random.choice(page_targets)
-            queries.append(
-                f'"{sector}" startup {region} {phrase} {page_hint} {NEGATIVE_VECTORS}'
-            )
-            queries.append(
-                f'{sector} company {region} "raised" "$1 million" OR "$2 million" OR "$3 million" '
-                f'founder CEO {NEGATIVE_VECTORS}'
-            )
+    for sector in SECTORS:
+        region, currency = random.choice(REGIONS)
+        verb = random.choice(VERBS)
+        rnd = random.choice(ROUNDS)
+
+        if currency == "GBP":
+            tier = '"$2 million" OR "$3 million" OR "£2 million" OR "£3 million" OR "£5 million"'
+        elif currency == "EUR":
+            tier = '"$2 million" OR "$3 million" OR "$5 million" OR "€2 million" OR "€3 million" OR "€5 million"'
+        else:
+            tier = '"$1.5 million" OR "$2 million" OR "$3 million" OR "$4 million" OR "$5 million" OR "$7 million" OR "$8 million"'
+
+        q = f'{sector} startup {region} {verb} {tier} {rnd} founder CEO {NEGATIVE_VECTORS}'
+        queries.append(q)
+
+        # Alternative variant with quotes on sector
+        q2 = f'"{sector}" startup {region} ("raised $2 million" OR "raised $3 million" OR "raised $5 million") seed founder {NEGATIVE_VECTORS}'
+        queries.append(q2)
+
     random.shuffle(queries)
     return queries[:n]
 
 
-def _press_release_queries(n: int) -> List[str]:
-    """
-    Target official press releases / investor announcement pages on company domains.
-    These pages often contain funding amount + CEO name + email.
-    """
+def _tld_targeted_queries(n: int) -> List[str]:
+    """Directly targets modern tech startup TLDs (.ai, .io, .co, .app) landing on official homepages."""
     queries = []
-    for sector in config.SECTORS:
-        region = random.choice(config.REGIONS)
-        queries.append(
-            f'{sector} startup {region} "seed funding" "million" 2024 OR 2025 OR 2026 '
-            f'CEO founder {NEGATIVE_VECTORS}'
-        )
-        queries.append(
-            f'{sector} company {region} "pre-series A" OR "seed round" 2025 2026 '
-            f'"co-founder" OR "CEO" {NEGATIVE_VECTORS}'
-        )
+    tld_configs = [
+        (".ai", ["AI platform", "AI startup", "agentic AI", "machine learning platform"]),
+        (".io", ["B2B SaaS", "developer platform", "cloud infrastructure", "logistics tech"]),
+        (".app", ["fintech", "digital banking", "insurtech", "edtech platform"]),
+        (".co", ["enterprise platform", "B2B marketplace", "healthtech", "supply chain"]),
+    ]
+
+    for tld, sectors in tld_configs:
+        for sec in sectors:
+            region, _ = random.choice(REGIONS)
+            q = f'site:{tld} "{sec}" ("seed round" OR "seed funding" OR "backed by") {region} founder {NEGATIVE_VECTORS}'
+            queries.append(q)
+
+    random.shuffle(queries)
+    return queries[:n]
+
+
+def _accelerator_investor_queries(n: int) -> List[str]:
+    """Targets companies backed by top early-stage seed funds and accelerators."""
+    queries = []
+    investors = [
+        "Speedinvest", "LocalGlobe", "Peak XV", "Antler", "East Ventures",
+        "Endiya Partners", "MassMutual Ventures", "Pitchdrive", "Kalaari Capital",
+        "Blossom Capital", "Partech", "Founders Factory"
+    ]
+    for inv in investors:
+        region, _ = random.choice(REGIONS)
+        tier = '"$2 million" OR "$3 million" OR "$4 million" OR "$5 million" OR "$6 million"'
+        q = f'startup {region} "seed round led by {inv}" OR "{inv} leads" {tier} {NEGATIVE_VECTORS}'
+        queries.append(q)
+
     random.shuffle(queries)
     return queries[:n]
 
@@ -79,15 +131,15 @@ def _press_release_queries(n: int) -> List[str]:
 def _llm_brainstormed_queries(n: int) -> List[str]:
     prompt = (
         f"You are helping a venture-scouting agent discover startups on the open web.\n"
-        f"Generate {n} short, diverse Google-style search queries (one per line, no numbering, no quotes around the line) "
-        f"that would return COMPANY OFFICIAL PAGES (about, team, contact, press) — NOT blog posts, lists, or directories.\n"
-        f"Target non-US tech platform startups (UK, France, Germany, India, UAE, Singapore, Africa, LatAm, Australia) "
-        f"that have raised between $1M and $5M total funding.\n"
-        f"Each query must include at least one funding signal (e.g. 'seed funding $2 million') and a founder/CEO signal.\n"
-        f"Include {NEGATIVE_VECTORS} in every query to exclude US entities and aggregator sites.\n"
+        f"Generate {n} realistic Google search queries (one per line, no numbering) "
+        f"to find non-US tech startups (UK, Europe, India, UAE, Singapore, Africa, LatAm, Australia) "
+        f"that have raised between $1M and $10M total funding or seed rounds.\n"
+        f"Each query should combine a sector, non-US region, a funding amount (e.g. '$2 million' or '$5 million' or '€3 million'), "
+        f"and a role ('CEO' or 'founder').\n"
+        f"Include {NEGATIVE_VECTORS} at the end of each query.\n"
         f"Examples:\n"
-        f"  fintech startup India seed funding $2 million CEO founder -site:crunchbase.com\n"
-        f"  AI SaaS company UK pre-series A $3 million co-founder team page\n"
+        f"  healthtech startup India secures \"$2 million\" OR \"$3 million\" seed round founder CEO {NEGATIVE_VECTORS}\n"
+        f"  AI startup France \"raised €3 million\" OR \"raised €5 million\" seed CEO {NEGATIVE_VECTORS}\n"
     )
 
     gemini_key = config.get_gemini_api_key()
@@ -139,19 +191,24 @@ def _llm_brainstormed_queries(n: int) -> List[str]:
 
 def generate_queries(max_queries: int = None) -> List[str]:
     max_queries = max_queries or config.MAX_SEARCH_QUERIES
-    llm_share = min(15, max(4, max_queries // 3))
+    llm_share = min(10, max(3, max_queries // 5))
 
     queries = []
-    # Combinatorial + press-release queries (target company pages directly)
-    queries.extend(_combinatorial_queries(max_queries))
-    queries.extend(_press_release_queries(max_queries // 2))
+    # 1. Real funding news & press announcement queries (highest yield)
+    queries.extend(_funding_announcements_queries(int(max_queries * 0.6)))
 
-    # LLM brainstorming for diversity
+    # 2. Direct TLD targeted queries (.ai, .io, .co, .app)
+    queries.extend(_tld_targeted_queries(int(max_queries * 0.25)))
+
+    # 3. Accelerator & lead investor queries
+    queries.extend(_accelerator_investor_queries(int(max_queries * 0.15)))
+
+    # 4. LLM brainstorming
     llm_queries = _llm_brainstormed_queries(llm_share)
     if llm_queries:
         queries = llm_queries + queries
 
-    # De-dupe while preserving order
+    # De-duplicate while preserving order
     seen = set()
     unique = []
     for q in queries:
@@ -159,4 +216,6 @@ def generate_queries(max_queries: int = None) -> List[str]:
         if key and key not in seen:
             seen.add(key)
             unique.append(q)
+
+    random.shuffle(unique)
     return unique[:max_queries]
