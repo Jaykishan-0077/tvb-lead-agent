@@ -33,6 +33,11 @@ def _check_disqualifying_snippets(company_name: str, search_results: List[Dict])
             r"raised\s+\$(?:1[1-9]|[2-9]\d|\d{3,})\s*m",
             r"total\s+funding.*?\$(?:1[1-9]|[2-9]\d|\d{3,})\s*m",
         ]
+        # Ignore false positives where company name appears as an investor in a portfolio table
+        is_investor_snippet = any(x in combined for x in ("co-investor", "lead investor", "investor(s)", "portfolio companies", "venture fund"))
+        if is_investor_snippet and any(x in combined for x in (f"{company_name.lower()} ventures", f"{company_name.lower()} capital", f"{company_name.lower()} partners")):
+            continue
+
         for pat in overfunding_patterns:
             if re.search(pat, combined):
                 # Ensure the snippet is actually talking about this company
@@ -100,7 +105,10 @@ def verify_adversarial(record: Dict) -> Tuple[bool, str, str]:
         return (False, "US_PRESENCE_TOO_HIGH", "Description indicates US headquarters or corporate entity")
 
     # 3. Live Adversarial Web Search Query 1: Subsequent Rounds & Acquisitions
-    adv_query_1 = f'"{company_name}" funding "Series B" OR "Series C" OR "Series D" OR "acquired"'
+    clean_domain = str(record.get("clean_domain") or record.get("source_url") or "").split("//")[-1].split("/")[0].replace("www.", "")
+    country = str(record.get("hq_country") or "").strip()
+    scope = f'"{clean_domain}"' if clean_domain and len(clean_domain) > 3 and clean_domain != company_name.lower() else country
+    adv_query_1 = f'"{company_name}" {scope} funding "Series B" OR "Series C" OR "Series D" OR "acquired"'
     results_1 = search.search(adv_query_1, num=5)
     passed_1, reason_1, exp_1 = _check_disqualifying_snippets(company_name, results_1)
     if not passed_1:

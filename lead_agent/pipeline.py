@@ -37,6 +37,18 @@ AGGREGATOR_DOMAINS = {
     "siliconcanals.com", "tech.eu", "failory.com", "launchbaseafrica.com",
     "dxbstart.com", "uaepreferred.com", "zepnew.com", "weetracker.com",
     "vcbacked.co", "newmarketpitch.com", "euacc.ai", "marketingreport.one",
+    "youtube.com", "thatround.com", "fundraiseinsider.com", "marketscreener.com",
+    "njeda.gov", "thestartupscene.me", "arabnews.pk", "arabnews.com", "dubainext.ae",
+    "wamda.com", "francefintech.org", "fintechmagazine.com", "mubadala.com",
+    "founderconnects.com", "fwdstart.me", "forbesindia.com", "saasboomi.org",
+    "sourcery.vc", "rho.co", "reuters.com", "obapr.com", "briefs.co",
+    "velocityventures.vc", "skift.com", "phocuswire.com", "timesofindia.indiatimes.com",
+    "indiatimes.com", "indiaai.gov.in", "saviorhire.com", "echai.ventures",
+    "lucidityinsights.com", "startupstash.com", "folotop.com", "nearshoreamericas.com",
+    "mezha.net", "startupgenome.com", "gftn.co", "fintechnews.sg", "startupsg.gov.sg",
+    "finextra.com", "ibsintelligence.com", "yahoo.com", "finance.yahoo.com",
+    "techloy.com", "law.com", "aol.com", "gravity.fast", "gentyrecruitment.io",
+    "ceo-middleeast.com", "oilandgasmiddleeast.com", "cpx.net",
     # VC/investor platforms
     "crunchbase.com", "pitchbook.com", "dealroom.co", "angellist.com",
     "seedtable.com", "signal.nfx.com", "tracxn.com", "cb-insights.com",
@@ -66,12 +78,13 @@ import re
 import requests
 
 
-def resolve_company_official_website(company_name: str, country: str = "") -> str:
+def resolve_company_official_website(company_name: str, country: str = "", exclude_domain: str = "") -> str:
     """Discovers the real corporate website for a startup identified via news or press releases."""
     api_key = config.get_tavily_api_key()
     if not api_key or not company_name:
         return ""
-    q = f'"{company_name}" {country} startup official website homepage'
+    exclude_clause = f"-site:{exclude_domain}" if exclude_domain else ""
+    q = f'"{company_name}" {country} startup official website homepage {exclude_clause}'.strip()
     try:
         resp = requests.post(
             "https://api.tavily.com/search",
@@ -86,6 +99,8 @@ def resolve_company_official_website(company_name: str, country: str = "") -> st
             if ans:
                 for match in re.finditer(r"https?://([A-Za-z0-9.-]+\.[A-Za-z]{2,})(?:/[^\s,]*)?", ans):
                     dom = match.group(1).lower().replace("www.", "")
+                    if exclude_domain and (exclude_domain in dom or dom in exclude_domain):
+                        continue
                     if not any(ex in dom for ex in AGGREGATOR_DOMAINS):
                         return f"https://{dom}"
 
@@ -94,6 +109,8 @@ def resolve_company_official_website(company_name: str, country: str = "") -> st
             for item in data.get("results", []):
                 u = item.get("url", "")
                 dom = u.split("//")[-1].split("/")[0].lower().replace("www.", "")
+                if exclude_domain and (exclude_domain in dom or dom in exclude_domain):
+                    continue
                 if any(ex in dom for ex in AGGREGATOR_DOMAINS):
                     continue
                 if c_clean in dom.replace("-", "") or dom.split(".")[0] in c_clean:
@@ -103,6 +120,8 @@ def resolve_company_official_website(company_name: str, country: str = "") -> st
             for item in data.get("results", []):
                 u = item.get("url", "")
                 dom = u.split("//")[-1].split("/")[0].lower().replace("www.", "")
+                if exclude_domain and (exclude_domain in dom or dom in exclude_domain):
+                    continue
                 if not any(ex in dom for ex in AGGREGATOR_DOMAINS):
                     return f"https://{dom}"
     except Exception:
@@ -213,7 +232,7 @@ def run(
             cur_dom = domain.lower().replace("www.", "")
             if c_clean and c_clean not in cur_dom and cur_dom.split(".")[0] not in c_clean:
                 yield {"type": "log", "message": f"  🔎 Press/News coverage detected for '{c_name}'. Resolving official website..."}
-                official_url = resolve_company_official_website(c_name, hq)
+                official_url = resolve_company_official_website(c_name, hq, exclude_domain=cur_dom)
                 if official_url:
                     off_dom = scraper.domain_of(official_url)
                     yield {"type": "log", "message": f"     🌐 Discovered Official Website: {official_url} ({off_dom})"}

@@ -56,8 +56,7 @@ Return STRICT JSON only, no markdown fences, no commentary:
   "contact_email": ""
 }
 
-Rules:
-- company_name: The startup/company name.
+- company_name: The name of the specific tech startup being announced, funded, or described. CRITICAL: If this text is a news article, blog post, or press release, extract the name of the STARTUP that raised funding or is being profiled, NEVER the media site/blog/publisher (e.g. if 'thestartupscene.me' reports that 'Conektr' raised funding, company_name MUST be 'Conektr', NOT 'The Startup Scene').
 - hq_country: Country where headquarters is located (e.g. "India", "United Kingdom"). Leave "" if not stated.
 - has_significant_us_presence: "yes" ONLY if the text clearly says US headquarters or dominant US presence. Otherwise "no" or "unknown".
 - is_tech_platform: "yes" if the company provides a software/SaaS/AI/tech product. "no" if purely service/consulting.
