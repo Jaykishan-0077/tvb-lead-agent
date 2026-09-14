@@ -84,16 +84,15 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("🔍 Search Provider")
-    serpapi_default = os.environ.get("SERPAPI_API_KEY") or os.environ.get("SERPER_API_KEY") or getattr(config, "get_serpapi_api_key", lambda: "")()
-    serper_key_input = st.text_input(
-        "SerpApi Key",
-        value=serpapi_default,
+    tavily_default = os.environ.get("TAVILY_API_KEY") or getattr(config, "get_tavily_api_key", lambda: "")()
+    tavily_key_input = st.text_input(
+        "Tavily API Key",
+        value=tavily_default,
         type="password",
-        help="Google-backed search for fresh press releases and funding news.",
+        help="Tavily AI-powered search for live funding news and startup pages. Get one at https://tavily.com",
     )
-    if serper_key_input:
-        os.environ["SERPER_API_KEY"] = serper_key_input
-        os.environ["SERPAPI_API_KEY"] = serper_key_input
+    if tavily_key_input:
+        os.environ["TAVILY_API_KEY"] = tavily_key_input
 
     st.markdown("---")
     st.subheader("📧 Email Verification")

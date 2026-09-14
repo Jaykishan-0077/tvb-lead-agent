@@ -1,9 +1,10 @@
 """
 Search layer.
 
-Supports:
-1. SerpApi (serpapi.com) / Serper (serper.dev) for Google-backed live search.
-2. DuckDuckGo (via ddgs package and direct HTML fallback) for 100% free search.
+Priority order:
+1. Tavily Search API (tavily.com) — primary, AI-optimised search with rich snippets.
+2. SerpApi (serpapi.com) — fallback Google-backed live search.
+3. DuckDuckGo (via ddgs package and direct HTML fallback) — 100% free last resort.
 """
 
 import os
@@ -15,6 +16,7 @@ import requests
 
 from . import config
 
+
 try:
     from ddgs import DDGS
 except ImportError:
@@ -22,6 +24,42 @@ except ImportError:
         from duckduckgo_search import DDGS
     except ImportError:
         DDGS = None
+
+
+def _search_tavily(query: str, num: int) -> List[Dict]:
+    """Tavily Search API – primary search provider."""
+    api_key = config.get_tavily_api_key()
+    if not api_key:
+        return []
+    try:
+        resp = requests.post(
+            "https://api.tavily.com/search",
+            headers={"Content-Type": "application/json"},
+            json={
+                "api_key": api_key,
+                "query": query,
+                "max_results": num,
+                "search_depth": "advanced",
+                "include_answer": False,
+                "include_raw_content": False,
+            },
+            timeout=config.REQUEST_TIMEOUT_SECS,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            out = []
+            for item in data.get("results", [])[:num]:
+                out.append(
+                    {
+                        "title": item.get("title", ""),
+                        "url": item.get("url", ""),
+                        "snippet": item.get("content", ""),
+                    }
+                )
+            return out
+    except Exception:
+        pass
+    return []
 
 
 def _search_serpapi(query: str, num: int) -> List[Dict]:
@@ -35,34 +73,6 @@ def _search_serpapi(query: str, num: int) -> List[Dict]:
             data = resp.json()
             out = []
             for item in data.get("organic_results", [])[:num]:
-                out.append(
-                    {
-                        "title": item.get("title", ""),
-                        "url": item.get("link", ""),
-                        "snippet": item.get("snippet", ""),
-                    }
-                )
-            return out
-    except Exception:
-        pass
-    return []
-
-
-def _search_serper(query: str, num: int) -> List[Dict]:
-    api_key = os.environ.get("SERPER_API_KEY", "")
-    if not api_key:
-        return []
-    try:
-        resp = requests.post(
-            "https://google.serper.dev/search",
-            headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
-            json={"q": query, "num": num},
-            timeout=config.REQUEST_TIMEOUT_SECS,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            out = []
-            for item in data.get("organic", [])[:num]:
                 out.append(
                     {
                         "title": item.get("title", ""),
@@ -97,10 +107,10 @@ def _search_ddg(query: str, num: int) -> List[Dict]:
 
 
 def _search_ddg_html(query: str, num: int) -> List[Dict]:
-    """Direct HTTP fallback to DuckDuckGo HTML search if DDGS library is absent or blocked."""
+    """Direct HTTP fallback to DuckDuckGo HTML search."""
     try:
         from bs4 import BeautifulSoup
-        
+
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -117,18 +127,18 @@ def _search_ddg_html(query: str, num: int) -> List[Dict]:
         )
         if resp.status_code != 200:
             return []
-        
+
         soup = BeautifulSoup(resp.text, "html.parser")
         results = []
         for result in soup.find_all("div", class_="result"):
             a_elem = result.find("a", class_="result__url") or result.find("a", class_="result__snippet")
             title_elem = result.find("a", class_="result__a")
             snippet_elem = result.find("a", class_="result__snippet")
-            
+
             href = a_elem.get("href") if a_elem else (title_elem.get("href") if title_elem else "")
             title = title_elem.get_text().strip() if title_elem else ""
             snippet = snippet_elem.get_text().strip() if snippet_elem else ""
-            
+
             if href and not href.startswith("/"):
                 if "duckduckgo.com/l/?uddg=" in href:
                     parsed = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
@@ -143,20 +153,21 @@ def _search_ddg_html(query: str, num: int) -> List[Dict]:
 
 def search(query: str, num: int = None) -> List[Dict]:
     num = num or config.RESULTS_PER_QUERY
-    # 1. Try SerpApi (serpapi.com)
-    results = _search_serpapi(query, num)
 
-    # 2. Try Serper (serper.dev)
+    # 1. Try Tavily (primary – AI-optimised, rich snippets)
+    results = _search_tavily(query, num)
+
+    # 2. Try SerpApi fallback
     if not results:
-        results = _search_serper(query, num)
-    
+        results = _search_serpapi(query, num)
+
     # 3. Try DDGS library
     if not results:
         results = _search_ddg(query, num)
-        
+
     # 4. Try direct DDG HTML fallback
     if not results:
         results = _search_ddg_html(query, num)
-        
+
     time.sleep(0.3)
     return results

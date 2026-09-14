@@ -188,6 +188,11 @@ def get_gemini_api_key() -> str:
     return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
 
 
+def get_tavily_api_key() -> str:
+    _load_env_fallback()
+    return os.environ.get("TAVILY_API_KEY", "")
+
+
 def get_serpapi_api_key() -> str:
     _load_env_fallback()
     return os.environ.get("SERPAPI_API_KEY") or os.environ.get("SERPER_API_KEY", "")
