@@ -156,32 +156,48 @@ def verify_email_syntax_and_mx(email: str) -> bool:
 
 
 def _classify_us_presence(record: Dict, page_text: str = "") -> str:
-    """Classifies US presence as NONE, MINIMAL, SIGNIFICANT, or UNKNOWN based on evidence."""
+    """Classifies US presence as NONE, MINIMAL, SIGNIFICANT, or UNKNOWN based on evidence.
+    
+    Strict rule:
+      - SIGNIFICANT  → reject (US HQ or dominant US presence confirmed)
+      - NONE/MINIMAL → pass
+      - UNKNOWN      → pass (benefit of the doubt; adversarial will catch US flips)
+    """
     hq = str(record.get("hq_country") or "").strip().lower()
     desc = str(record.get("description") or "").strip().lower()
     text = page_text.lower() if page_text else ""
-    
-    us_markers = (
-        "united states", "usa", "u.s.", "u.s.a.", "delaware", "california", 
-        "new york", "san francisco", "silicon valley", "austin, tx", "seattle", "boston, ma"
+
+    # Hard US HQ signals
+    us_hq_markers = (
+        "united states", "usa", "u.s.", "u.s.a.", "delaware", "california",
+        "new york", "san francisco", "silicon valley", "austin, tx", "seattle", "boston, ma",
+        "new york city", "los angeles", "chicago, il",
     )
-    if any(u in hq for u in us_markers):
+    if any(u in hq for u in us_hq_markers):
         return "SIGNIFICANT"
-    
+
     val = record.get("has_significant_us_presence")
     if val is True or (isinstance(val, str) and val.strip().lower() in ("yes", "true", "significant")):
         return "SIGNIFICANT"
-    
-    # Check text for US headquarters or parent
-    if "san francisco" in desc or "delaware c-corp" in desc or "headquartered in the us" in desc:
+
+    # Only flag SIGNIFICANT if text *explicitly* says US HQ or parent
+    strong_us_signals = (
+        "headquartered in the united states", "headquartered in the us",
+        "headquarters: san francisco", "headquarters: new york",
+        "delaware corporation", "delaware c-corp", "us-based company",
+        "incorporated in the us",
+    )
+    if any(sig in desc for sig in strong_us_signals):
         return "SIGNIFICANT"
-    if text and ("headquarters: san francisco" in text or "headquarters: new york" in text or "delaware corporation" in text):
+    if text and any(sig in text for sig in strong_us_signals):
         return "SIGNIFICANT"
 
-    if not hq or hq in ("global", "unknown", ""):
-        return "UNKNOWN"
+    # Explicit non-US HQ → NONE
+    if hq and hq not in ("global", "unknown", "", "unknown country"):
+        return "NONE"
 
-    return "NONE" if "remote" not in hq else "MINIMAL"
+    # hq field empty or "unknown" → UNKNOWN (but we let these pass; adversarial catches flips)
+    return "UNKNOWN"
 
 
 def _parse_financial_amount(record: Dict, page_text: str = "") -> Tuple[Optional[float], str, str, str, Optional[float], Optional[float]]:
@@ -367,9 +383,8 @@ def evaluate_record(record: Dict, page_text: str = "") -> Tuple[Optional[Dict], 
     if us_class == "SIGNIFICANT":
         base_audit["rejection_reason"] = "US_PRESENCE_TOO_HIGH"
         return (None, base_audit)
-    if us_class == "UNKNOWN":
-        base_audit["rejection_reason"] = "US_PRESENCE_UNKNOWN"
-        return (None, base_audit)
+    # UNKNOWN = benefit of the doubt; adversarial web search will catch any US flip
+
 
     # ----------------------------------------------------
     # Gate 5: Primary CEO / Co-founder Verification

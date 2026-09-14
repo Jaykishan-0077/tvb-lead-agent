@@ -2,20 +2,60 @@
 Grounded Two-Pass Autonomous Discovery & 6-Gate Deterministic Verification Pipeline.
 
 Architecture:
-  Pass 1: Live Multi-Vector Google SERP Discovery & Crawling (Real search queries across non-US regions).
+  Pass 1: Live Multi-Vector Tavily SERP Discovery & Crawling (Real search queries across non-US regions).
   Pass 2: Deep 6-Gate Deterministic Verification (G1 to G6) strictly grounded on fetched web page text.
-  Pass 3: Live Adversarial Web Search Audit (Live Google search for Series B/C rounds, acquisitions, and US flips).
+  Pass 3: Live Adversarial Web Search Audit (Live search for Series B/C rounds, acquisitions, US flips).
 
 Outputs:
   - qualified_leads: Fully verified leads passing all 6 gates + adversarial web audit.
-  - rejected_leads: Audit log of all evaluated candidates with explicit rejection reasons and real citations.
+  - rejected_leads: Audit log of all evaluated candidates with explicit rejection reasons.
 """
 
 import datetime
 import random
 from typing import Dict, Generator, List
+from urllib.parse import urlparse
 
 from . import adversarial, config, extractor, query_generator, scraper, search, validator
+
+# ---------------------------------------------------------------------------
+# Domains that are aggregator/list/investor/news sites — never a startup HQ.
+# The pipeline must skip these: scraping them returns article text, not company facts.
+# ---------------------------------------------------------------------------
+AGGREGATOR_DOMAINS = {
+    # List/directory sites
+    "vestbee.com", "growthlist.co", "wellfound.com", "f6s.com", "eu-startups.com",
+    "thestartuptrends.com", "startupblink.com", "startupsmagazine.co.uk",
+    "startupstories.in", "startuptalky.com", "vccircle.com", "yourstory.com",
+    "inc42.com", "businessinsider.com", "businessinsider.in", "forbes.com",
+    "fortune.com", "techcrunch.com", "venturebeat.com", "the-next-web.com",
+    "thenextweb.com", "wired.com", "techradar.com", "zdnet.com",
+    # VC/investor platforms
+    "crunchbase.com", "pitchbook.com", "dealroom.co", "angellist.com",
+    "seedtable.com", "signal.nfx.com", "tracxn.com", "cb-insights.com",
+    "cbinsights.com", "strictlyvc.com",
+    # Social / general
+    "linkedin.com", "twitter.com", "x.com", "facebook.com", "instagram.com",
+    "medium.com", "substack.com", "reddit.com",
+    # Press release wires
+    "prnewswire.com", "businesswire.com", "globenewswire.com", "accesswire.com",
+    "einpresswire.com", "newswire.com",
+    # Generic job boards / aggregators
+    "glassdoor.com", "indeed.com", "builtin.com",
+}
+
+
+def _is_aggregator(url: str) -> bool:
+    """Returns True if the URL belongs to a known aggregator/list/news domain."""
+    try:
+        netloc = urlparse(url).netloc.lower().lstrip("www.")
+        # Check exact match or suffix match (e.g. "news.techcrunch.com")
+        for agg in AGGREGATOR_DOMAINS:
+            if netloc == agg or netloc.endswith("." + agg):
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def run(
@@ -54,10 +94,11 @@ def run(
         if scanned >= max_domains or len(qualified_leads) >= min_leads:
             break
 
-        yield {"type": "log", "message": f"[{qi}/{len(queries)}] Google SERP Search: {q}"}
+        yield {"type": "log", "message": f"[{qi}/{len(queries)}] Tavily Search: {q}"}
         results = search.search(q, num=config.RESULTS_PER_QUERY)
 
         if not results:
+            yield {"type": "log", "message": f"  ⚠️ No results returned for query #{qi}"}
             continue
 
         for r in results:
@@ -65,7 +106,11 @@ def run(
                 break
 
             url = r.get("url") or ""
-            if not url or "linkedin.com" in url or "crunchbase.com" in url or "techcrunch.com" in url:
+            if not url:
+                continue
+
+            # Skip aggregator, investor, and news domains immediately
+            if _is_aggregator(url):
                 continue
 
             domain = scraper.domain_of(url)
@@ -90,7 +135,7 @@ def run(
                     "checked_at": datetime.date.today().isoformat(),
                 }
                 rejected_leads.append(rej_lead)
-                yield {"type": "log", "message": f"     ❌ Rejected {domain}: Inaccessible or empty site"}
+                yield {"type": "log", "message": f"     ❌ Rejected {domain}: Inaccessible or empty site (status: no page text)"}
                 continue
 
             # Grounded extraction strictly from scraped page text
@@ -105,11 +150,12 @@ def run(
                     "checked_at": datetime.date.today().isoformat(),
                 }
                 rejected_leads.append(rej_lead)
-                yield {"type": "log", "message": f"     ❌ Rejected {domain}: Could not extract structured company facts"}
+                yield {"type": "log", "message": f"     ❌ Rejected {domain}: LLM could not extract structured company facts"}
                 continue
 
             c_name = extracted_record.get("company_name") or domain
-            yield {"type": "log", "message": f"  -> 6-Gate Audit: {c_name} (HQ: {extracted_record.get('hq_country', 'Unknown')})"}
+            hq = extracted_record.get("hq_country") or "Unknown"
+            yield {"type": "log", "message": f"  -> 6-Gate Audit: {c_name} (HQ: {hq})"}
 
             # Evaluate 6 Hard Gates with live scraped page text
             qual, rej = validator.evaluate_record(extracted_record, page_text=page_text)
@@ -120,8 +166,8 @@ def run(
                 funnel["ceo_pass"] += 1
                 funnel["email_pass"] += 1
 
-                # Pass 3: Active Adversarial Web Search Break-Testing
-                yield {"type": "log", "message": f"  🛡️ Running Active Adversarial Web Search on {c_name}..."}
+                # Pass 3: Adversarial Web Search Break-Testing
+                yield {"type": "log", "message": f"  🛡️ Running Adversarial Web Audit on {c_name}..."}
                 adv_pass, adv_reason, adv_exp = adversarial.verify_adversarial(qual)
 
                 if adv_pass:
@@ -133,8 +179,10 @@ def run(
                     yield {"type": "funnel", "funnel": funnel}
                     yield {
                         "type": "log",
-                        "message": f"     ✅ QUALIFIED #{len(qualified_leads)}: {qual['company_name']} "
-                        f"({qual['financial_amount_usd']} | {qual['contact_name']} <{qual['email']}>)",
+                        "message": (
+                            f"     ✅ QUALIFIED #{len(qualified_leads)}: {qual['company_name']} "
+                            f"({qual['financial_amount_usd']} | {qual['contact_name']} <{qual['email']}>)"
+                        ),
                     }
                 else:
                     qual["qualification_status"] = "REJECTED"
@@ -143,19 +191,21 @@ def run(
                     rejected_leads.append(qual)
                     yield {
                         "type": "log",
-                        "message": f"     🛡️ Adversarial Search rejected {c_name}: {adv_reason} ({adv_exp})",
+                        "message": f"     🛡️ Adversarial rejected {c_name}: {adv_reason} — {adv_exp}",
                     }
             else:
                 if rej:
+                    reason = rej.get("rejection_reason", "UNKNOWN")
                     rejected_leads.append(rej)
                     yield {
                         "type": "log",
-                        "message": f"     ❌ Rejected {c_name}: {rej.get('rejection_reason')}",
+                        "message": f"     ❌ Rejected {c_name}: {reason}",
                     }
+                yield {"type": "funnel", "funnel": funnel}
 
     yield {
         "type": "log",
-        "message": f"🎉 Discovery Run Completed: {len(qualified_leads)} fully QUALIFIED leads | {len(rejected_leads)} REJECTED candidates logged.",
+        "message": f"🎉 Discovery Complete: {len(qualified_leads)} QUALIFIED leads | {len(rejected_leads)} REJECTED logged.",
     }
     yield {
         "type": "done",
